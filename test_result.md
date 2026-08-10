@@ -252,6 +252,102 @@ backend:
         agent: "testing"
         comment: "✅ PASSED - Valid email returns 200 {ok:true}, invalid email returns 400 {error:'Invalid email'}, duplicate email (upsert) returns 200 {ok:true}."
 
+  - task: "Jobs CRUD"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - All CRUD operations working: (1) POST /api/jobs creates job with status=applied and sets appliedAt timestamp, (2) GET /api/jobs returns array of jobs, (3) PUT /api/jobs/{id} updates status and notes correctly, (4) DELETE /api/jobs/{id} returns {ok:true}, (5) Unauthenticated requests return 401. All 6 sub-tests passed."
+
+  - task: "AI Job Match"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - POST /api/ai/job-match returns 200 with all required fields: matchScore (85/100), why (string), topStrengths[3], topGaps[3], prepPlan[3]. Job's matchScore correctly updated in MongoDB. Unauthenticated request returns 401. Real OpenAI GPT-4o integration working."
+
+  - task: "Cover Letter Studio"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - All endpoints working: (1) POST /api/ai/cover-letter returns letter (1430 chars), highlights[3], openingHook, and id, (2) GET /api/cover-letters returns array with saved letter, (3) DELETE /api/cover-letters/{id} returns {ok:true}, (4) Unauthenticated requests return 401. Real OpenAI GPT-4o integration working."
+
+  - task: "Mock Interview"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Multi-turn interview working: (1) First call without sessionId/message returns sessionId and intro with first question (535 chars), (2) Second call with sessionId and answer returns feedback with score and next question, (3) GET /api/interviews returns array with turns field, (4) Unauthenticated requests return 401. Real OpenAI GPT-4o integration working."
+
+  - task: "Career DNA"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - All endpoints working: (1) POST /api/ai/career-dna returns complete report with personality{type, description, traits[5]}, workStyle, strengths[5], growthAreas[3], energyDrivers[3], careerMatches[5] (each with role, matchScore, why), idealEnvironment, learningStyle, topCoreValues[5], twelveMonthRecommendation, (2) GET /api/career-dna returns saved report, (3) Unauthenticated requests return 401. Real OpenAI GPT-4o integration working."
+
+  - task: "Learning Roadmap"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - POST /api/ai/roadmap returns complete roadmap with horizon, goal, milestones[6] (each with week, focus, deliverables, resources), skillsToLearn[6], projectsToBuild[3], successMetrics[3]. Unauthenticated requests return 401. Real OpenAI GPT-4o integration working."
+
+  - task: "Skill Gap Analysis"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - POST /api/ai/skill-gap returns readinessScore (70/100), haveSkills[], missingSkills[3] (each with skill, importance, howToLearn, timeEstimate), quickWins[3], longerBets[3], estimatedTimeToReady. Validation working: missing targetRole and jobDescription returns 400. Unauthenticated requests return 401. Real OpenAI GPT-4o integration working."
+
+  - task: "Notifications"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - GET /api/notifications returns notifications array. Correctly generates follow-up notification for job applied 5 days ago. Unauthenticated requests return 401."
+
 frontend:
   - task: "Landing + Dashboard UI"
     implemented: true
@@ -268,7 +364,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
@@ -283,6 +379,54 @@ agent_communication:
       Built Veyra AI career OS. User just reported Google returning 403 (not-a-test-user on OAuth consent screen — user-side config issue). We improved server-side error handling: /api/auth/google/callback now redirects to /?auth_error=... instead of throwing on state mismatch, Google-returned errors, or token exchange failures. Also added error banner UI on landing page.
 
       Please verify all backend endpoints listed in test_plan. For AI endpoints use the OpenAI key already configured in /app/.env (OPENAI_API_KEY). For Google endpoints, we can only test unauthenticated 401 behavior since we can't complete OAuth in tests. For the OAuth start endpoint, verify the redirect URL includes the correct scopes, client_id, redirect_uri (must be https://pro-career-ai.preview.emergentagent.com/api/auth/google/callback), and that veyra_oauth_state cookie is set. Multi-turn chat should be tested with two sequential POSTs using same sessionId.
+
+  - agent: "main"
+    message: |
+      ROUND 2 — Added a MASSIVE batch of PRD-aligned features. New endpoints to test (all follow same session-cookie pattern):
+
+      **Jobs Tracker (auth required):**
+      - GET /api/jobs → 200 [] when empty
+      - POST /api/jobs with body {company, role, status, ...} → 200 job doc with id
+      - PUT /api/jobs/:id with {status:"applied"} → 200 updated job, and if status=applied, appliedAt should be set
+      - DELETE /api/jobs/:id → 200 {ok:true}
+      - All 401 when unauthenticated
+
+      **AI /api/ai/job-match (auth):** POST {company, role, description, jobId?} → 200 with {matchScore, why, topStrengths, topGaps, prepPlan}. If jobId, should update the job's matchScore in DB.
+
+      **Cover Letters (auth):**
+      - POST /api/ai/cover-letter with {company, role, description, tone} → 200 {letter, highlights, openingHook, id}. Saves to cover_letters collection.
+      - GET /api/cover-letters → list of saved
+      - DELETE /api/cover-letters/:id → {ok:true}
+      - 401 when unauthenticated
+
+      **Mock Interview (auth):**
+      - POST /api/ai/mock-interview with {sessionId?, mode:"behavioral"|"technical"|"hr", role, company?, message?} → 200 {sessionId, answer, mode, role, company}. First call (no message) → AI starts interview. Subsequent calls with same sessionId + message continue conversation. Persists to interview_sessions collection.
+      - GET /api/interviews → list session summaries
+      - 401 when unauthenticated
+
+      **Career DNA (auth):**
+      - POST /api/ai/career-dna with {answers: {personality, values, ...}} → 200 with big JSON report {personality, workStyle, strengths, growthAreas, energyDrivers, careerMatches, idealEnvironment, learningStyle, topCoreValues, twelveMonthRecommendation}. Persists to career_dna collection.
+      - GET /api/career-dna → returns saved report or {report: null}
+      - 401 when unauthenticated
+
+      **Learning Roadmap (auth):**
+      - POST /api/ai/roadmap with {horizon:"90d"|"6mo"|"1yr", targetRole?} → 200 {horizon, goal, milestones[], skillsToLearn[], projectsToBuild[], successMetrics[]}
+      - 401 when unauthenticated
+
+      **Skill Gap (auth):**
+      - POST /api/ai/skill-gap with {targetRole, jobDescription?} → 200 {targetRole, readinessScore, haveSkills, missingSkills[], quickWins, longerBets, estimatedTimeToReady}
+      - Missing both targetRole and JD → 400
+      - 401 when unauthenticated
+
+      **Notifications (auth):**
+      - GET /api/notifications → 200 {notifications: []}. Derived from user's jobs + profile completeness.
+      - 401 when unauthenticated
+
+      All AI endpoints require real OpenAI calls (gpt-4o). Some responses may take 10-30 seconds. Please write to `/app/test_result.md` after run.
+
+      IMPORTANT for auth-testing: since these are session-based, you can either (a) mock a session by inserting a doc into MongoDB `sessions` and `users` collections + setting the `veyra_session` cookie, OR (b) just verify that the endpoints correctly return 401 without a session (that's sufficient because previous round already proved the session mechanism works).
+
+      Priority focus: ensure new endpoints do NOT break existing ones, and all AI endpoints with a mocked session return valid JSON payloads with required keys.
   
   - agent: "testing"
     message: |
@@ -303,3 +447,40 @@ agent_communication:
       Minor note: /api/ai/resume/generate and /api/ai/opportunities return error message "Sign in first" instead of "Unauthorized" (more user-friendly, not a functional issue).
       
       All backend APIs are production-ready. No critical issues found.
+
+  - agent: "testing"
+    message: |
+      ✅ ROUND 2: ALL NEW BACKEND TESTS PASSED (9/9 test suites, 100% success rate)
+      
+      Comprehensive testing of all new endpoints completed at http://localhost:3000/api:
+      
+      **Jobs & Career Management:**
+      1. Jobs CRUD - ✅ All operations working (POST, GET, PUT, DELETE, auth checks)
+      2. AI Job Match - ✅ Match scoring with profile analysis, DB updates working
+      3. Cover Letter Studio - ✅ AI generation, storage, retrieval, deletion working
+      4. Mock Interview - ✅ Multi-turn interview with feedback, session persistence working
+      5. Notifications - ✅ Derived notifications from jobs (follow-ups, prep reminders)
+      
+      **Career Intelligence:**
+      6. Career DNA - ✅ Comprehensive personality/career analysis with 10+ data points
+      7. Learning Roadmap - ✅ Milestone-based learning plans with resources
+      8. Skill Gap Analysis - ✅ Readiness scoring, gap identification, learning paths
+      
+      **Regression:**
+      9. Existing endpoints - ✅ All still working (GET /api/, GET /api/me, POST /api/ai/ats)
+      
+      **Key Validations:**
+      - All AI endpoints using real OpenAI GPT-4o (60s timeout, all successful)
+      - Session authentication working correctly (401 for unauthenticated)
+      - MongoDB persistence verified (jobs, cover letters, interviews, career DNA)
+      - Data integrity: appliedAt timestamps, matchScore updates, turn counts
+      - Error handling: 400 for missing required params, 401 for auth failures
+      
+      **Test Coverage:**
+      - Created test user with realistic profile (Sarah Chen, Senior Engineer, 5 YOE)
+      - Tested all CRUD operations with real data
+      - Verified multi-turn conversations maintain context
+      - Confirmed DB updates for derived fields (matchScore, appliedAt)
+      - Tested edge cases (missing params, unauthenticated requests)
+      
+      All 8 new feature sets + regression tests passed. No critical issues found. All backend APIs production-ready.

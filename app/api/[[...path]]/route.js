@@ -547,6 +547,247 @@ async function handleRoute(request, { params }) {
       return handleCORS(NextResponse.json(data))
     }
 
+    // ============ JOBS TRACKER ============
+    if (route === '/jobs' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const jobs = await db.collection('jobs').find({ userId: s.user.id }).sort({ updatedAt: -1 }).toArray()
+      return handleCORS(NextResponse.json(jobs.map(({ _id, ...x }) => x)))
+    }
+    if (route === '/jobs' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const now = new Date()
+      const doc = {
+        id: uuidv4(), userId: s.user.id,
+        company: body.company || '', role: body.role || '',
+        location: body.location || '', salary: body.salary || '',
+        status: body.status || 'wishlist', // wishlist|saved|applied|assessment|interview|offer|accepted|rejected
+        jobUrl: body.jobUrl || '', description: body.description || '',
+        notes: body.notes || '', referral: body.referral || '',
+        matchScore: body.matchScore ?? null,
+        appliedAt: body.status === 'applied' ? now : null,
+        createdAt: now, updatedAt: now,
+      }
+      await db.collection('jobs').insertOne(doc)
+      const { _id, ...rest } = doc
+      return handleCORS(NextResponse.json(rest))
+    }
+    if (route.startsWith('/jobs/') && method === 'PUT') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const id = route.replace('/jobs/', '')
+      const body = await request.json()
+      const allowed = ['company', 'role', 'location', 'salary', 'status', 'jobUrl', 'description', 'notes', 'referral', 'matchScore']
+      const update = { updatedAt: new Date() }
+      for (const k of allowed) if (k in body) update[k] = body[k]
+      if (body.status === 'applied') update.appliedAt = update.appliedAt || new Date()
+      await db.collection('jobs').updateOne({ id, userId: s.user.id }, { $set: update })
+      const doc = await db.collection('jobs').findOne({ id, userId: s.user.id })
+      const { _id, ...rest } = doc
+      return handleCORS(NextResponse.json(rest))
+    }
+    if (route.startsWith('/jobs/') && method === 'DELETE') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const id = route.replace('/jobs/', '')
+      await db.collection('jobs').deleteOne({ id, userId: s.user.id })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    // ============ AI: JOB MATCH % ============
+    if (route === '/ai/job-match' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const ctx = await loadUserContext(s.user.id)
+      const ctxStr = contextToString(ctx)
+      const raw = await complete([
+        { role: 'system', content: 'You compute honest, evidence-based match scores. Return JSON only.' },
+        { role: 'user', content: `User profile:\n${ctxStr}\n\nJob: ${body.company || ''} — ${body.role || ''}\nDescription:\n${body.description || ''}\n\nReturn JSON: {"matchScore": number 0-100, "why": string (1-2 sentences), "topStrengths": string[3], "topGaps": string[3], "prepPlan": string[3]}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      if (body.jobId) {
+        await db.collection('jobs').updateOne({ id: body.jobId, userId: s.user.id }, { $set: { matchScore: data.matchScore, updatedAt: new Date() } })
+      }
+      return handleCORS(NextResponse.json(data))
+    }
+
+    // ============ AI: COVER LETTER ============
+    if (route === '/ai/cover-letter' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const ctx = await loadUserContext(s.user.id)
+      const ctxStr = contextToString(ctx)
+      const tone = body.tone || 'professional and warm'
+      const raw = await complete([
+        { role: 'system', content: 'You write world-class cover letters — concise (~250 words), specific, truthful. Never invent facts. Return JSON only.' },
+        { role: 'user', content: `Write a cover letter for: ${body.company || ''} — ${body.role || ''}\nJob description:\n${body.description || ''}\n\nCandidate profile:\n${ctxStr}\n\nTone: ${tone}\n\nReturn JSON: {"letter": string (the full letter, plain text with paragraph breaks), "highlights": string[3] (why this letter works), "openingHook": string}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      // Save
+      const doc = { id: uuidv4(), userId: s.user.id, company: body.company || '', role: body.role || '', tone, letter: data.letter, highlights: data.highlights, createdAt: new Date() }
+      await db.collection('cover_letters').insertOne(doc)
+      return handleCORS(NextResponse.json({ ...data, id: doc.id }))
+    }
+    if (route === '/cover-letters' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const docs = await db.collection('cover_letters').find({ userId: s.user.id }).sort({ createdAt: -1 }).limit(30).toArray()
+      return handleCORS(NextResponse.json(docs.map(({ _id, ...x }) => x)))
+    }
+    if (route.startsWith('/cover-letters/') && method === 'DELETE') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const id = route.replace('/cover-letters/', '')
+      await db.collection('cover_letters').deleteOne({ id, userId: s.user.id })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    // ============ AI: MOCK INTERVIEW ============
+    if (route === '/ai/mock-interview' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const sessionId = (body.sessionId || uuidv4()).toString()
+      const message = (body.message || '').toString().trim()
+      const mode = body.mode || 'behavioral' // behavioral | technical | hr
+      const role = body.role || 'Software Engineer'
+      const company = body.company || ''
+
+      const chats = db.collection('interview_sessions')
+      const existing = await chats.findOne({ sessionId })
+      const isNew = !existing
+      const history = (existing?.messages || []).slice(-20)
+      const ctx = await loadUserContext(s.user.id)
+
+      const systemPrompt = `You are an expert ${mode} interviewer${company ? ' at ' + company : ''} for the role of ${role}. Simulate a realistic interview. Ask ONE question at a time. Wait for the candidate's answer. After each answer, provide brief inline feedback in this format:\n\n📝 Feedback:\n- Strength: [one]\n- Improve: [one specific tip]\n- Score: [0-100]\n\nThen ask the next question. Cover 5 questions total, then give a final summary with overall score, confidence score, communication score, and 3 improvement tips.\n\nCandidate context:\n${contextToString(ctx)}`
+
+      let messages
+      if (isNew && !message) {
+        messages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Begin the interview. Introduce yourself briefly and ask the first question.` },
+        ]
+      } else {
+        messages = [
+          { role: 'system', content: systemPrompt },
+          ...history.map(m => ({ role: m.role, content: m.content })),
+          { role: 'user', content: message || 'continue' },
+        ]
+      }
+      const answer = await complete(messages)
+      const now = new Date()
+      await chats.updateOne(
+        { sessionId },
+        {
+          $setOnInsert: { id: uuidv4(), sessionId, userId: s.user.id, mode, role, company, createdAt: now },
+          $set: { updatedAt: now },
+          $push: { messages: { $each: [
+            ...(message ? [{ role: 'user', content: message, createdAt: now }] : []),
+            { role: 'assistant', content: answer, createdAt: now },
+          ] } },
+        },
+        { upsert: true },
+      )
+      return handleCORS(NextResponse.json({ sessionId, answer, mode, role, company }))
+    }
+    if (route === '/interviews' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const docs = await db.collection('interview_sessions').find({ userId: s.user.id }).sort({ updatedAt: -1 }).limit(20).toArray()
+      return handleCORS(NextResponse.json(docs.map(({ _id, messages, ...x }) => ({ ...x, turns: (messages || []).length }))))
+    }
+
+    // ============ AI: CAREER DNA ============
+    if (route === '/ai/career-dna' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const answers = body.answers || {} // { personality, values, goal5yr, energizes, drains, learningStyle, riskTolerance }
+      const ctx = await loadUserContext(s.user.id)
+      const ctxStr = contextToString(ctx)
+      const raw = await complete([
+        { role: 'system', content: "You are a career psychologist and coach. Analyze a person's Career DNA from their questionnaire and profile. Insightful, sharp, non-generic. Return JSON only." },
+        { role: 'user', content: `Questionnaire answers:\n${JSON.stringify(answers, null, 2)}\n\nProfile:\n${ctxStr}\n\nReturn JSON: {"personality":{"type":string,"description":string,"traits":string[5]}, "workStyle": string, "strengths": string[5], "growthAreas": string[3], "energyDrivers": string[3], "careerMatches": [{"role": string, "matchScore": number 0-100, "why": string}] (5 items), "idealEnvironment": string, "learningStyle": string, "topCoreValues": string[5], "twelveMonthRecommendation": string}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      await db.collection('career_dna').updateOne(
+        { userId: s.user.id },
+        { $set: { userId: s.user.id, answers, report: data, updatedAt: new Date() }, $setOnInsert: { id: uuidv4(), createdAt: new Date() } },
+        { upsert: true },
+      )
+      return handleCORS(NextResponse.json(data))
+    }
+    if (route === '/career-dna' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const doc = await db.collection('career_dna').findOne({ userId: s.user.id })
+      if (!doc) return handleCORS(NextResponse.json({ report: null }))
+      const { _id, ...rest } = doc
+      return handleCORS(NextResponse.json(rest))
+    }
+
+    // ============ AI: LEARNING ROADMAP ============
+    if (route === '/ai/roadmap' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const horizon = body.horizon || '90d' // 90d | 6mo | 1yr
+      const targetRole = body.targetRole || ''
+      const ctx = await loadUserContext(s.user.id)
+      const ctxStr = contextToString(ctx)
+      const raw = await complete([
+        { role: 'system', content: 'You create sharp, realistic learning roadmaps. Return JSON only.' },
+        { role: 'user', content: `Profile:\n${ctxStr}\n\nHorizon: ${horizon}\nTarget role: ${targetRole || 'align with profile targetRole'}\n\nReturn JSON: {"horizon": string, "goal": string, "milestones": [{"week": string (e.g. "Weeks 1-2"), "focus": string, "deliverables": string[2-4], "resources": [{"type":"course|book|project|cert","title":string,"url":string?}]}] (4-8 items), "skillsToLearn": string[6], "projectsToBuild": string[3], "successMetrics": string[3]}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      await db.collection('roadmaps').insertOne({ id: uuidv4(), userId: s.user.id, horizon, targetRole, plan: data, createdAt: new Date() })
+      return handleCORS(NextResponse.json(data))
+    }
+
+    // ============ AI: SKILL GAP ANALYSIS ============
+    if (route === '/ai/skill-gap' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const targetRole = body.targetRole || ''
+      const jd = body.jobDescription || ''
+      if (!targetRole && !jd) return handleCORS(NextResponse.json({ error: 'targetRole or jobDescription required' }, { status: 400 }))
+      const ctx = await loadUserContext(s.user.id)
+      const ctxStr = contextToString(ctx)
+      const raw = await complete([
+        { role: 'system', content: 'You are a career strategist and market-aware skill analyst. Return JSON only.' },
+        { role: 'user', content: `User profile:\n${ctxStr}\n\nTarget role: ${targetRole}\n${jd ? `JD:\n${jd}` : ''}\n\nReturn JSON: {"targetRole": string, "readinessScore": number 0-100, "haveSkills": string[], "missingSkills": [{"skill": string, "importance":"critical|high|medium", "howToLearn": string, "timeEstimate": string}], "quickWins": string[3], "longerBets": string[3], "estimatedTimeToReady": string}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      return handleCORS(NextResponse.json(data))
+    }
+
+    // ============ NOTIFICATIONS (derived) ============
+    if (route === '/notifications' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const notifications = []
+      // From jobs: interviews / deadlines
+      const jobs = await db.collection('jobs').find({ userId: s.user.id }).toArray()
+      const now = Date.now()
+      for (const j of jobs) {
+        if (j.status === 'applied' && j.appliedAt) {
+          const days = Math.floor((now - new Date(j.appliedAt).getTime()) / 86400000)
+          if (days === 5 || days === 7) notifications.push({ id: 'follow-' + j.id, type: 'follow-up', title: `Follow up on ${j.company}`, body: `You applied ${days} days ago. Consider a polite follow-up.`, createdAt: new Date() })
+        }
+        if (j.status === 'interview') notifications.push({ id: 'prep-' + j.id, type: 'prep', title: `Prep for ${j.company} interview`, body: `Start a mock interview for the ${j.role} role.`, createdAt: new Date() })
+      }
+      // From memories / profile - one-off welcome
+      const profile = s.user
+      if (!profile.headline) notifications.push({ id: 'headline', type: 'profile', title: 'Add your headline', body: 'A crisp headline helps Veyra personalize every recommendation.', createdAt: new Date() })
+      if (!profile.targetRole) notifications.push({ id: 'target', type: 'profile', title: 'Set your target role', body: 'Tell Veyra your dream role so the Opportunity Engine gets sharper.', createdAt: new Date() })
+      return handleCORS(NextResponse.json({ notifications }))
+    }
+
     // ============ WAITLIST ============
     if (route === '/waitlist' && method === 'POST') {
       const body = await request.json()

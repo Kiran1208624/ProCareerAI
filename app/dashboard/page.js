@@ -7,7 +7,8 @@ import {
   Mail, Briefcase, ArrowRight, Check, Send, Loader2, ChevronRight,
   Bot, Layers, Wand2, Copy, Download, User, LogOut,
   Cloud, GitBranch, Linkedin, Brain, Compass, Plus, X, RefreshCw,
-  Building2, Trash2, ExternalLink, MapPin, Award, BookOpen, Settings
+  Building2, Trash2, ExternalLink, MapPin, Award, BookOpen, Settings,
+  MessageSquare, Fingerprint, Map, Target as TargetIcon, Bell, Sparkle, GraduationCap
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -18,15 +19,22 @@ import { toast, Toaster } from 'sonner'
 
 const NAV = [
   { key: 'home', label: 'Dashboard', icon: Layers },
-  { key: 'chat', label: 'AI Assistant', icon: Bot },
+  { key: 'chat', label: 'AI Copilot', icon: Bot },
   { key: 'profile', label: 'Profile', icon: User },
+  { key: 'jobs', label: 'Job Tracker', icon: Briefcase },
+  { key: 'interview', label: 'Mock Interview', icon: MessageSquare },
+  { key: 'cover', label: 'Cover Letter', icon: FileText },
+  { key: 'careerdna', label: 'Career DNA', icon: Fingerprint },
+  { key: 'roadmap', label: 'Learning Roadmap', icon: Map },
+  { key: 'gap', label: 'Skill Gap', icon: TargetIcon },
   { key: 'memory', label: 'AI Memory', icon: Brain },
   { key: 'opportunities', label: 'Opportunities', icon: Compass },
-  { key: 'resume', label: 'Resume', icon: FileText },
+  { key: 'resume', label: 'Resume Studio', icon: FileText },
   { key: 'ats', label: 'ATS Analyzer', icon: Target },
   { key: 'gmail', label: 'Gmail', icon: Mail },
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'drive', label: 'Drive', icon: Cloud },
+  { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'settings', label: 'Settings', icon: Settings },
 ]
 
@@ -111,6 +119,12 @@ function Dashboard() {
           {active === 'home' && <HomeTab me={me} setActive={setActive} />}
           {active === 'chat' && <ChatTab me={me} />}
           {active === 'profile' && <ProfileTab me={me} reload={loadMe} />}
+          {active === 'jobs' && <JobsTab />}
+          {active === 'interview' && <InterviewTab />}
+          {active === 'cover' && <CoverLetterTab />}
+          {active === 'careerdna' && <CareerDNATab />}
+          {active === 'roadmap' && <RoadmapTab me={me} />}
+          {active === 'gap' && <SkillGapTab me={me} />}
           {active === 'memory' && <MemoryTab />}
           {active === 'opportunities' && <OpportunitiesTab me={me} />}
           {active === 'resume' && <ResumeTab me={me} />}
@@ -118,6 +132,7 @@ function Dashboard() {
           {active === 'gmail' && <GmailTab connected={me.connected.google} />}
           {active === 'calendar' && <CalendarTab connected={me.connected.google} />}
           {active === 'drive' && <DriveTab connected={me.connected.google} />}
+          {active === 'notifications' && <NotificationsTab setActive={setActive} />}
           {active === 'settings' && <SettingsTab me={me} />}
         </div>
       </main>
@@ -920,6 +935,613 @@ function IntegrationRow({ name, connected, icon: Icon, description, href }) {
       ) : (
         <Badge className="bg-white/5 border border-white/10 text-white/50">Soon</Badge>
       )}
+    </div>
+  )
+}
+
+// ============ JOBS (Kanban) ============
+const JOB_STAGES = [
+  { key: 'wishlist', label: 'Wishlist', color: 'from-slate-500 to-slate-700' },
+  { key: 'saved', label: 'Saved', color: 'from-slate-500 to-slate-700' },
+  { key: 'applied', label: 'Applied', color: 'from-blue-500 to-blue-700' },
+  { key: 'assessment', label: 'Assessment', color: 'from-cyan-500 to-cyan-700' },
+  { key: 'interview', label: 'Interview', color: 'from-violet-500 to-violet-700' },
+  { key: 'offer', label: 'Offer', color: 'from-emerald-500 to-emerald-700' },
+  { key: 'accepted', label: 'Accepted', color: 'from-emerald-500 to-emerald-700' },
+  { key: 'rejected', label: 'Rejected', color: 'from-rose-500 to-rose-700' },
+]
+
+function JobsTab() {
+  const [jobs, setJobs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [form, setForm] = useState({ company: '', role: '', location: '', salary: '', jobUrl: '', description: '', notes: '', referral: '', status: 'wishlist' })
+
+  async function load() {
+    setLoading(true)
+    const r = await fetch('/api/jobs'); const data = await r.json()
+    setJobs(Array.isArray(data) ? data : []); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  async function save() {
+    if (!form.company || !form.role) return toast.error('Company and role required')
+    const url = editing ? `/api/jobs/${editing}` : '/api/jobs'
+    const method = editing ? 'PUT' : 'POST'
+    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+    if (r.ok) { toast.success(editing ? 'Job updated' : 'Job added'); setShowAdd(false); setEditing(null); resetForm(); load() }
+    else toast.error('Save failed')
+  }
+  function resetForm() { setForm({ company: '', role: '', location: '', salary: '', jobUrl: '', description: '', notes: '', referral: '', status: 'wishlist' }) }
+  function openEdit(j) { setEditing(j.id); setForm({ company: j.company, role: j.role, location: j.location, salary: j.salary, jobUrl: j.jobUrl, description: j.description, notes: j.notes, referral: j.referral, status: j.status }); setShowAdd(true) }
+  async function move(j, newStatus) {
+    await fetch(`/api/jobs/${j.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) })
+    load()
+  }
+  async function remove(id) {
+    if (!confirm('Delete this job?')) return
+    await fetch(`/api/jobs/${id}`, { method: 'DELETE' }); load()
+  }
+  async function computeMatch(j) {
+    toast.info('Computing AI match...')
+    const r = await fetch('/api/ai/job-match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId: j.id, company: j.company, role: j.role, description: j.description }) })
+    if (r.ok) { toast.success('Match computed'); load() }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold">Job Tracker</h1>
+          <p className="text-white/50 mt-1 text-sm">Every application, one board. AI computes match scores automatically.</p>
+        </div>
+        <Button onClick={() => { resetForm(); setEditing(null); setShowAdd(v => !v) }} className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white">
+          <Plus className="w-4 h-4 mr-1" /> New job
+        </Button>
+      </div>
+      {showAdd && (
+        <div className="glass rounded-2xl p-5 space-y-3">
+          <div className="grid md:grid-cols-2 gap-3">
+            <Field label="Company"><Input value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Role"><Input value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Location"><Input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Salary range"><Input value={form.salary} onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Job URL"><Input value={form.jobUrl} onChange={e => setForm(f => ({ ...f, jobUrl: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Referral"><Input value={form.referral} onChange={e => setForm(f => ({ ...f, referral: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Status">
+              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+                {JOB_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Job description"><Textarea rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
+          <Field label="Notes"><Textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
+          <div className="flex gap-2">
+            <Button onClick={save} className="bg-white text-black hover:bg-white/90">{editing ? 'Update' : 'Add job'}</Button>
+            <Button onClick={() => { setShowAdd(false); setEditing(null); resetForm() }} variant="outline" className="border-white/10 bg-white/5">Cancel</Button>
+          </div>
+        </div>
+      )}
+      {loading && <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div>}
+      <div className="overflow-x-auto">
+        <div className="flex gap-3 min-w-max pb-4">
+          {JOB_STAGES.map(stage => {
+            const stageJobs = jobs.filter(j => j.status === stage.key)
+            return (
+              <div key={stage.key} className="w-72 shrink-0">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-white/60">{stage.label}</div>
+                  <Badge className={`bg-gradient-to-r ${stage.color} text-white border-0 text-[10px]`}>{stageJobs.length}</Badge>
+                </div>
+                <div className="space-y-2">
+                  {stageJobs.map(j => (
+                    <div key={j.id} className="glass rounded-xl p-3 hover:bg-white/[0.04] transition group">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div className="text-sm font-semibold truncate">{j.role}</div>
+                        {j.matchScore != null && (
+                          <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] shrink-0">{j.matchScore}%</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-white/60 flex items-center gap-1 truncate"><Building2 className="w-3 h-3" />{j.company}</div>
+                      {j.location && <div className="text-[10px] text-white/40 mt-1 flex items-center gap-1"><MapPin className="w-2.5 h-2.5" />{j.location}</div>}
+                      <div className="flex items-center gap-1 mt-3 pt-2 border-t border-white/5">
+                        <select value={j.status} onChange={e => move(j, e.target.value)} className="text-[10px] bg-transparent border border-white/10 rounded px-1.5 py-0.5 flex-1 text-white/70">
+                          {JOB_STAGES.map(s => <option key={s.key} value={s.key} className="bg-black">{s.label}</option>)}
+                        </select>
+                        <button onClick={() => computeMatch(j)} title="AI Match" className="p-1 text-white/40 hover:text-emerald-400"><Sparkle className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => openEdit(j)} title="Edit" className="p-1 text-white/40 hover:text-white"><Wand2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => remove(j.id)} title="Delete" className="p-1 text-white/40 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+                  {stageJobs.length === 0 && !loading && (
+                    <div className="text-[11px] text-white/25 text-center py-6 border border-dashed border-white/10 rounded-xl">No jobs</div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============ MOCK INTERVIEW ============
+function InterviewTab() {
+  const [config, setConfig] = useState({ mode: 'behavioral', role: 'Software Engineer', company: '' })
+  const [started, setStarted] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [sessionId, setSessionId] = useState('')
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const scrollRef = useRef(null)
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [messages, loading])
+
+  async function start() {
+    setStarted(true); setLoading(true); setMessages([])
+    const newId = (typeof window !== 'undefined' && window.crypto?.randomUUID) ? window.crypto.randomUUID() : 'iv-' + Date.now()
+    setSessionId(newId)
+    const r = await fetch('/api/ai/mock-interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: newId, mode: config.mode, role: config.role, company: config.company }) })
+    const data = await r.json()
+    setLoading(false)
+    if (r.ok) setMessages([{ role: 'assistant', content: data.answer }])
+    else toast.error(data.error || 'Failed')
+  }
+  async function send() {
+    const text = input.trim()
+    if (!text || loading) return
+    setInput('')
+    setMessages(m => [...m, { role: 'user', content: text }])
+    setLoading(true)
+    const r = await fetch('/api/ai/mock-interview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, message: text, mode: config.mode, role: config.role, company: config.company }) })
+    const data = await r.json(); setLoading(false)
+    if (r.ok) setMessages(m => [...m, { role: 'assistant', content: data.answer }])
+    else setMessages(m => [...m, { role: 'assistant', content: `⚠️ ${data.error || 'failed'}` }])
+  }
+  function reset() { setStarted(false); setMessages([]); setSessionId(''); setInput('') }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Mock Interview</h1>
+        <p className="text-white/50 mt-1 text-sm">AI role-plays a recruiter. Realistic questions. Instant feedback + scores.</p>
+      </div>
+      {!started ? (
+        <div className="glass rounded-2xl p-6 max-w-2xl space-y-4">
+          <div className="grid md:grid-cols-3 gap-3">
+            <Field label="Type">
+              <select value={config.mode} onChange={e => setConfig(c => ({ ...c, mode: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+                <option value="behavioral">Behavioral</option>
+                <option value="technical">Technical</option>
+                <option value="hr">HR / Culture Fit</option>
+              </select>
+            </Field>
+            <Field label="Target role"><Input value={config.role} onChange={e => setConfig(c => ({ ...c, role: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+            <Field label="Company (optional)"><Input value={config.company} onChange={e => setConfig(c => ({ ...c, company: e.target.value }))} placeholder="e.g. Google" className="bg-black/40 border-white/10" /></Field>
+          </div>
+          <Button onClick={start} className="bg-gradient-to-r from-violet-500 to-blue-500 text-white h-11 px-5">
+            <Zap className="w-4 h-4 mr-2" /> Start mock interview
+          </Button>
+        </div>
+      ) : (
+        <div className="glass-strong rounded-2xl border border-white/10 overflow-hidden flex flex-col h-[70vh]">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-black/40">
+            <div className="text-sm font-semibold">{config.mode} · {config.role}{config.company ? ' · ' + config.company : ''}</div>
+            <Button size="sm" variant="ghost" onClick={reset} className="text-white/60 hover:text-white"><RefreshCw className="w-3.5 h-3.5 mr-1" /> Restart</Button>
+          </div>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'justify-end' : ''}`}>
+                {m.role === 'assistant' && <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 shrink-0 flex items-center justify-center"><MessageSquare className="w-4 h-4 text-white" /></div>}
+                <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'bg-gradient-to-br from-blue-500 to-violet-500 text-white' : 'bg-white/[0.04] border border-white/5 text-white/85'}`}>{m.content}</div>
+                {m.role === 'user' && <div className="w-8 h-8 rounded-lg bg-white/10 shrink-0 flex items-center justify-center"><User className="w-4 h-4" /></div>}
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 shrink-0 flex items-center justify-center"><MessageSquare className="w-4 h-4 text-white" /></div>
+                <div className="bg-white/[0.04] border border-white/5 px-4 py-3 rounded-2xl"><div className="flex gap-1"><span className="w-2 h-2 rounded-full bg-white/40 animate-bounce" /><span className="w-2 h-2 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: '150ms' }} /><span className="w-2 h-2 rounded-full bg-white/40 animate-bounce" style={{ animationDelay: '300ms' }} /></div></div>
+              </div>
+            )}
+          </div>
+          <div className="p-4 border-t border-white/5">
+            <form onSubmit={e => { e.preventDefault(); send() }} className="flex gap-2">
+              <Input value={input} onChange={e => setInput(e.target.value)} placeholder="Type your answer..." disabled={loading} className="bg-black/40 border-white/10 h-11" />
+              <Button type="submit" disabled={loading || !input.trim()} className="h-11 px-5 bg-white text-black"><Send className="w-4 h-4" /></Button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============ COVER LETTER ============
+function CoverLetterTab() {
+  const [form, setForm] = useState({ company: '', role: '', description: '', tone: 'professional and warm' })
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [history, setHistory] = useState([])
+  async function loadHistory() {
+    const r = await fetch('/api/cover-letters')
+    if (r.ok) setHistory(await r.json())
+  }
+  useEffect(() => { loadHistory() }, [])
+  async function gen() {
+    if (!form.company || !form.role) return toast.error('Company and role required')
+    setLoading(true); setResult(null)
+    try {
+      const r = await fetch('/api/ai/cover-letter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setResult(data); loadHistory(); toast.success('Cover letter generated')
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  async function copy() { await navigator.clipboard.writeText(result.letter); toast.success('Copied') }
+  function download() {
+    const blob = new Blob([result.letter], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob); const a = document.createElement('a')
+    a.href = url; a.download = `cover_letter_${(form.company || 'veyra').replace(/\s+/g, '_')}.txt`; a.click()
+    URL.revokeObjectURL(url)
+  }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Cover Letter Studio</h1>
+        <p className="text-white/50 mt-1 text-sm">Personalized cover letters generated from your profile.</p>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div className="glass rounded-2xl p-5 space-y-3">
+          <Field label="Company"><Input value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+          <Field label="Role"><Input value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+          <Field label="Tone">
+            <select value={form.tone} onChange={e => setForm(f => ({ ...f, tone: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+              <option>professional and warm</option>
+              <option>formal and concise</option>
+              <option>enthusiastic and personal</option>
+              <option>confident and direct</option>
+              <option>creative and bold</option>
+            </select>
+          </Field>
+          <Field label="Job description (optional)"><Textarea rows={5} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
+          <Button onClick={gen} disabled={loading} className="w-full bg-gradient-to-r from-violet-500 to-blue-500 text-white h-11">
+            {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Writing...</> : <><Wand2 className="w-4 h-4 mr-2" /> Generate cover letter</>}
+          </Button>
+        </div>
+        <div>
+          {result ? (
+            <div className="glass-strong rounded-2xl border border-violet-500/20 overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-black/40">
+                <div className="text-sm font-semibold">Your cover letter</div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={copy} className="h-8 text-white/70"><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
+                  <Button size="sm" variant="ghost" onClick={download} className="h-8 text-white/70"><Download className="w-3.5 h-3.5 mr-1" /></Button>
+                </div>
+              </div>
+              <pre className="p-5 text-sm whitespace-pre-wrap text-white/90 max-h-[500px] overflow-auto leading-relaxed">{result.letter}</pre>
+            </div>
+          ) : (
+            <div className="glass rounded-2xl p-8 text-center min-h-[300px] flex flex-col items-center justify-center">
+              <FileText className="w-12 h-12 text-white/30 mb-3" />
+              <div className="text-sm text-white/50">Fill the form and hit Generate.</div>
+            </div>
+          )}
+        </div>
+      </div>
+      {history.length > 0 && (
+        <div>
+          <div className="text-sm font-semibold text-white/70 mb-2">Recent letters</div>
+          <div className="grid md:grid-cols-2 gap-2">
+            {history.map(h => (
+              <button key={h.id} onClick={() => setResult({ letter: h.letter, highlights: h.highlights })} className="glass rounded-lg p-3 text-left hover:bg-white/[0.04]">
+                <div className="text-sm font-medium truncate">{h.company} — {h.role}</div>
+                <div className="text-[11px] text-white/40 mt-0.5">{new Date(h.createdAt).toLocaleDateString()}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============ CAREER DNA ============
+const DNA_QUESTIONS = [
+  { key: 'personality', label: 'How would people describe you at work?', placeholder: 'e.g. curious, analytical, hands-on, calm under pressure' },
+  { key: 'values', label: 'What matters most in your work?', placeholder: 'e.g. impact, autonomy, learning, money, stability, mission' },
+  { key: 'goal5yr', label: 'Where do you want to be in 5 years?', placeholder: 'e.g. Staff Engineer at a Series-B startup, or founder' },
+  { key: 'energizes', label: 'What kinds of tasks energize you?', placeholder: 'e.g. deep coding, whiteboarding architecture, mentoring' },
+  { key: 'drains', label: 'What kinds of work drain you?', placeholder: 'e.g. long meetings, ambiguous specs, on-call' },
+  { key: 'learningStyle', label: 'How do you learn best?', placeholder: 'e.g. by building, reading, from mentors, structured courses' },
+  { key: 'riskTolerance', label: 'How much risk are you comfortable with?', placeholder: 'e.g. love ambiguity, prefer stability, or somewhere in between' },
+]
+function CareerDNATab() {
+  const [answers, setAnswers] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [report, setReport] = useState(null)
+  useEffect(() => {
+    (async () => {
+      const r = await fetch('/api/career-dna')
+      const data = await r.json()
+      if (data.report) { setReport(data.report); setAnswers(data.answers || {}) }
+    })()
+  }, [])
+  async function analyze() {
+    setLoading(true); setReport(null)
+    try {
+      const r = await fetch('/api/ai/career-dna', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers }) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setReport(data); toast.success('Career DNA analyzed')
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Career DNA</h1>
+        <p className="text-white/50 mt-1 text-sm">A deep AI analysis of who you are professionally — personality, strengths, values, career matches.</p>
+      </div>
+      <div className="glass rounded-2xl p-5 space-y-3 max-w-3xl">
+        {DNA_QUESTIONS.map(q => (
+          <Field key={q.key} label={q.label}>
+            <Textarea rows={2} value={answers[q.key] || ''} onChange={e => setAnswers(a => ({ ...a, [q.key]: e.target.value }))} placeholder={q.placeholder} className="bg-black/40 border-white/10 resize-none" />
+          </Field>
+        ))}
+        <Button onClick={analyze} disabled={loading} className="bg-gradient-to-r from-emerald-500 via-blue-500 to-violet-500 text-white h-11 px-5">
+          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing your DNA...</> : <><Fingerprint className="w-4 h-4 mr-2" /> Analyze my Career DNA</>}
+        </Button>
+      </div>
+      {report && (
+        <div className="space-y-4">
+          <div className="glass-strong rounded-2xl p-6 border border-emerald-500/20">
+            <div className="text-xs uppercase text-white/50 mb-1">Personality Type</div>
+            <div className="text-2xl font-bold text-gradient-brand">{report.personality?.type}</div>
+            <p className="text-sm text-white/70 mt-2">{report.personality?.description}</p>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {report.personality?.traits?.map((t, i) => <Badge key={i} className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">{t}</Badge>)}
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm font-semibold mb-2 flex items-center gap-2"><Award className="w-4 h-4 text-emerald-400" /> Strengths</div>
+              <ul className="space-y-1.5">{report.strengths?.map((s, i) => <li key={i} className="text-sm text-white/75 flex gap-2"><ChevronRight className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-1" />{s}</li>)}</ul>
+            </div>
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm font-semibold mb-2 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-400" /> Growth areas</div>
+              <ul className="space-y-1.5">{report.growthAreas?.map((s, i) => <li key={i} className="text-sm text-white/75 flex gap-2"><ChevronRight className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-1" />{s}</li>)}</ul>
+            </div>
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm font-semibold mb-2">Core values</div>
+              <div className="flex flex-wrap gap-1.5">{report.topCoreValues?.map((s, i) => <Badge key={i} className="bg-violet-500/10 text-violet-300 border border-violet-500/20">{s}</Badge>)}</div>
+            </div>
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm font-semibold mb-2">Energy drivers</div>
+              <ul className="space-y-1.5">{report.energyDrivers?.map((s, i) => <li key={i} className="text-sm text-white/75 flex gap-2"><ChevronRight className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-1" />{s}</li>)}</ul>
+            </div>
+          </div>
+          <div className="glass rounded-2xl p-5">
+            <div className="text-sm font-semibold mb-3 flex items-center gap-2"><Compass className="w-4 h-4 text-violet-400" /> Best-fit careers</div>
+            <div className="space-y-2">
+              {report.careerMatches?.map((c, i) => (
+                <div key={i} className="flex items-start gap-4 p-3 rounded-lg bg-white/[0.02]">
+                  <div className="text-2xl font-bold text-gradient-brand shrink-0">{c.matchScore}%</div>
+                  <div className="flex-1">
+                    <div className="font-semibold">{c.role}</div>
+                    <div className="text-xs text-white/60 mt-0.5">{c.why}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="glass rounded-2xl p-5">
+            <div className="text-sm font-semibold mb-2">Ideal work environment</div>
+            <p className="text-sm text-white/75">{report.idealEnvironment}</p>
+          </div>
+          <div className="glass rounded-2xl p-5 border border-blue-500/20">
+            <div className="text-sm font-semibold mb-2 flex items-center gap-2"><Sparkles className="w-4 h-4 text-blue-400" /> Your 12-month recommendation</div>
+            <p className="text-sm text-white/80">{report.twelveMonthRecommendation}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============ ROADMAP ============
+function RoadmapTab({ me }) {
+  const [config, setConfig] = useState({ horizon: '90d', targetRole: me.user.targetRole || '' })
+  const [loading, setLoading] = useState(false)
+  const [plan, setPlan] = useState(null)
+  async function generate() {
+    setLoading(true); setPlan(null)
+    try {
+      const r = await fetch('/api/ai/roadmap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setPlan(data); toast.success('Roadmap generated')
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Learning Roadmap</h1>
+        <p className="text-white/50 mt-1 text-sm">AI-generated learning plan with milestones and resources.</p>
+      </div>
+      <div className="glass rounded-2xl p-5 flex flex-col md:flex-row gap-3">
+        <select value={config.horizon} onChange={e => setConfig(c => ({ ...c, horizon: e.target.value }))} className="h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+          <option value="90d">90-Day Plan</option>
+          <option value="6mo">6-Month Plan</option>
+          <option value="1yr">1-Year Plan</option>
+        </select>
+        <Input value={config.targetRole} onChange={e => setConfig(c => ({ ...c, targetRole: e.target.value }))} placeholder="Target role (or leave blank to use profile)" className="bg-black/40 border-white/10 flex-1" />
+        <Button onClick={generate} disabled={loading} className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white h-10">
+          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building...</> : <><Map className="w-4 h-4 mr-2" /> Generate roadmap</>}
+        </Button>
+      </div>
+      {plan && (
+        <div className="space-y-4">
+          <div className="glass-strong rounded-2xl p-6 border border-emerald-500/20">
+            <div className="text-xs uppercase text-white/50 mb-1">{plan.horizon} Goal</div>
+            <div className="text-xl font-bold text-gradient">{plan.goal}</div>
+          </div>
+          <div className="space-y-3">
+            {plan.milestones?.map((m, i) => (
+              <div key={i} className="glass rounded-2xl p-5 relative">
+                <div className="absolute -left-3 top-6 w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-blue-500 flex items-center justify-center text-xs font-bold">{i + 1}</div>
+                <div className="ml-4">
+                  <div className="text-xs uppercase text-emerald-400 mb-1">{m.week}</div>
+                  <div className="font-semibold mb-2">{m.focus}</div>
+                  {m.deliverables?.length > 0 && (
+                    <div className="space-y-1 mb-3">
+                      {m.deliverables.map((d, j) => <div key={j} className="text-sm text-white/70 flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-1" />{d}</div>)}
+                    </div>
+                  )}
+                  {m.resources?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {m.resources.map((r, k) => (
+                        <Badge key={k} className="bg-white/5 border border-white/10 text-white/70 text-[10px]">
+                          <BookOpen className="w-2.5 h-2.5 mr-1" />{r.type}: {r.title}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {plan.skillsToLearn?.length > 0 && (
+              <div className="glass rounded-2xl p-5">
+                <div className="text-sm font-semibold mb-2 flex items-center gap-2"><GraduationCap className="w-4 h-4 text-blue-400" /> Skills to learn</div>
+                <div className="flex flex-wrap gap-1.5">{plan.skillsToLearn.map((s, i) => <Badge key={i} className="bg-blue-500/10 text-blue-300 border border-blue-500/20">{s}</Badge>)}</div>
+              </div>
+            )}
+            {plan.projectsToBuild?.length > 0 && (
+              <div className="glass rounded-2xl p-5">
+                <div className="text-sm font-semibold mb-2 flex items-center gap-2"><Briefcase className="w-4 h-4 text-violet-400" /> Projects to build</div>
+                <ul className="space-y-1">{plan.projectsToBuild.map((p, i) => <li key={i} className="text-sm text-white/75 flex gap-2"><ChevronRight className="w-3.5 h-3.5 text-violet-400 mt-1 shrink-0" />{p}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============ SKILL GAP ============
+function SkillGapTab({ me }) {
+  const [form, setForm] = useState({ targetRole: me.user.targetRole || '', jobDescription: '' })
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  async function analyze() {
+    if (!form.targetRole && !form.jobDescription) return toast.error('Enter a target role or paste a JD')
+    setLoading(true); setResult(null)
+    try {
+      const r = await fetch('/api/ai/skill-gap', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setResult(data)
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Skill Gap Analysis</h1>
+        <p className="text-white/50 mt-1 text-sm">See exactly what you're missing for your target role — and how to close each gap.</p>
+      </div>
+      <div className="glass rounded-2xl p-5 space-y-3 max-w-3xl">
+        <Field label="Target role"><Input value={form.targetRole} onChange={e => setForm(f => ({ ...f, targetRole: e.target.value }))} placeholder="e.g. Senior AI Engineer" className="bg-black/40 border-white/10" /></Field>
+        <Field label="Job description (optional)"><Textarea rows={5} value={form.jobDescription} onChange={e => setForm(f => ({ ...f, jobDescription: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
+        <Button onClick={analyze} disabled={loading} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white h-11 px-5">
+          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing...</> : <><TargetIcon className="w-4 h-4 mr-2" /> Analyze skill gap</>}
+        </Button>
+      </div>
+      {result && (
+        <div className="space-y-4">
+          <div className="glass-strong rounded-2xl p-6 border border-amber-500/20 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase text-white/50 mb-1">Readiness for {result.targetRole}</div>
+              <div className="text-5xl font-bold text-gradient-brand">{result.readinessScore}<span className="text-2xl text-white/40">/100</span></div>
+              <div className="text-sm text-white/60 mt-2">Estimated time to ready: <b className="text-white/85">{result.estimatedTimeToReady}</b></div>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm font-semibold mb-2 text-emerald-400">You already have</div>
+              <div className="flex flex-wrap gap-1.5">{result.haveSkills?.map((s, i) => <Badge key={i} className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">{s}</Badge>)}</div>
+            </div>
+            <div className="glass rounded-2xl p-5">
+              <div className="text-sm font-semibold mb-2 text-amber-400">Quick wins</div>
+              <ul className="space-y-1">{result.quickWins?.map((s, i) => <li key={i} className="text-sm text-white/75 flex gap-2"><ChevronRight className="w-3.5 h-3.5 text-amber-400 mt-1 shrink-0" />{s}</li>)}</ul>
+            </div>
+          </div>
+          <div className="glass rounded-2xl p-5">
+            <div className="text-sm font-semibold mb-3 text-red-400">Skills to close</div>
+            <div className="space-y-2">
+              {result.missingSkills?.map((s, i) => (
+                <div key={i} className="p-3 rounded-lg bg-white/[0.02] border border-white/5">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="font-semibold">{s.skill}</div>
+                    <Badge className={`text-[10px] ${s.importance === 'critical' ? 'bg-red-500/20 text-red-300 border-red-500/30' : s.importance === 'high' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-white/10 text-white/60'} border`}>{s.importance}</Badge>
+                  </div>
+                  <div className="text-xs text-white/60">{s.howToLearn}</div>
+                  <div className="text-[10px] text-white/40 mt-1">⏱ {s.timeEstimate}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============ NOTIFICATIONS ============
+function NotificationsTab({ setActive }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    (async () => {
+      const r = await fetch('/api/notifications')
+      const data = await r.json()
+      setItems(data.notifications || []); setLoading(false)
+    })()
+  }, [])
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Notifications</h1>
+        <p className="text-white/50 mt-1 text-sm">Smart alerts derived from your jobs, calendar, and profile.</p>
+      </div>
+      {loading ? <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div> :
+        items.length === 0 ? (
+          <div className="glass rounded-2xl p-10 text-center">
+            <Bell className="w-12 h-12 text-white/30 mx-auto mb-3" />
+            <div className="text-sm text-white/50">You're all caught up.</div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {items.map(n => (
+              <div key={n.id} className="glass rounded-lg p-4 flex items-start gap-3 hover:bg-white/[0.04]">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${n.type === 'follow-up' ? 'bg-blue-500/20 text-blue-300' : n.type === 'prep' ? 'bg-violet-500/20 text-violet-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                  {n.type === 'follow-up' ? <Mail className="w-4 h-4" /> : n.type === 'prep' ? <MessageSquare className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{n.title}</div>
+                  <div className="text-xs text-white/60 mt-0.5">{n.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      }
     </div>
   )
 }
