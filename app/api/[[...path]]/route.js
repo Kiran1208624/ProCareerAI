@@ -187,16 +187,28 @@ async function handleRoute(request, { params }) {
       const url = new URL(request.url)
       const code = url.searchParams.get('code')
       const state = url.searchParams.get('state')
+      const errParam = url.searchParams.get('error')
       const c = await cookies()
       const stored = c.get('veyra_oauth_state')?.value
       c.delete('veyra_oauth_state')
+      if (errParam) {
+        return NextResponse.redirect(new URL('/?auth_error=' + encodeURIComponent(errParam), request.url))
+      }
       if (!code || !state || state !== stored) {
         return NextResponse.redirect(new URL('/?auth_error=state', request.url))
       }
-      const client = oauth2Client()
-      const { tokens } = await client.getToken(code)
-      client.setCredentials(tokens)
-      const { data: me } = await oauth2Api(client).userinfo.get()
+      let tokens, me
+      try {
+        const client = oauth2Client()
+        const tk = await client.getToken(code)
+        tokens = tk.tokens
+        client.setCredentials(tokens)
+        const info = await oauth2Api(client).userinfo.get()
+        me = info.data
+      } catch (e) {
+        console.error('OAuth token exchange failed:', e?.message)
+        return NextResponse.redirect(new URL('/?auth_error=' + encodeURIComponent(e?.message || 'token_exchange'), request.url))
+      }
 
       // Upsert user
       const existing = await db.collection('users').findOne({ googleId: me.id })

@@ -747,9 +747,34 @@ function Footer() {
 }
 
 function App() {
+  const [authError, setAuthError] = useState(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const err = params.get('auth_error')
+    if (err) {
+      setAuthError(err)
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname + window.location.hash)
+    }
+  }, [])
   return (
     <div className="min-h-screen bg-[#050505] text-white">
       <Toaster theme="dark" position="top-right" />
+      {authError && (
+        <div className="fixed top-20 inset-x-0 z-40 flex justify-center px-4">
+          <div className="glass-strong border border-red-500/30 rounded-xl px-4 py-3 max-w-2xl flex items-start gap-3">
+            <X className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <div className="font-semibold text-red-300 mb-1">Google sign-in failed</div>
+              <div className="text-white/70 mb-2">Reason: <code className="text-white/90 bg-white/5 px-1.5 py-0.5 rounded text-xs">{authError}</code></div>
+              <div className="text-white/60 text-xs leading-relaxed">
+                Common fixes: (1) In Google Cloud Console → <b>OAuth consent screen</b>, add your email under <b>Test users</b>. (2) Ensure the app's <b>Publishing status</b> is set correctly. (3) Confirm the redirect URI <code className="text-white/80 bg-white/5 px-1 rounded">/api/auth/google/callback</code> is authorized.
+              </div>
+            </div>
+            <button onClick={() => setAuthError(null)} className="text-white/40 hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+      )}
       <Nav />
       <Hero />
       <FeaturesSection />
