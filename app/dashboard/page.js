@@ -8,8 +8,12 @@ import {
   Bot, Layers, Wand2, Copy, Download, User, LogOut,
   Cloud, GitBranch, Linkedin, Brain, Compass, Plus, X, RefreshCw,
   Building2, Trash2, ExternalLink, MapPin, Award, BookOpen, Settings,
-  MessageSquare, Fingerprint, Map, Target as TargetIcon, Bell, Sparkle, GraduationCap
+  MessageSquare, Fingerprint, Map, Target as TargetIcon, Bell, Sparkle, GraduationCap,
+  Mic, MicOff, Save, Edit3, Eye, Palette
 } from 'lucide-react'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -31,6 +35,7 @@ const NAV = [
   { key: 'opportunities', label: 'Opportunities', icon: Compass },
   { key: 'resume', label: 'Resume Studio', icon: FileText },
   { key: 'ats', label: 'ATS Analyzer', icon: Target },
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
   { key: 'gmail', label: 'Gmail', icon: Mail },
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'drive', label: 'Drive', icon: Cloud },
@@ -129,6 +134,7 @@ function Dashboard() {
           {active === 'opportunities' && <OpportunitiesTab me={me} />}
           {active === 'resume' && <ResumeTab me={me} />}
           {active === 'ats' && <ATSTab />}
+          {active === 'analytics' && <AnalyticsTab />}
           {active === 'gmail' && <GmailTab connected={me.connected.google} />}
           {active === 'calendar' && <CalendarTab connected={me.connected.google} />}
           {active === 'drive' && <DriveTab connected={me.connected.google} />}
@@ -558,74 +564,6 @@ function OpportunitiesTab({ me }) {
               </ul>
             </div>
           )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------- RESUME (generate from profile) ----------
-function ResumeTab({ me }) {
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  async function generate() {
-    setLoading(true); setResult(null)
-    try {
-      const r = await fetch('/api/ai/resume/generate', { method: 'POST' })
-      const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Failed')
-      setResult(data)
-      toast.success('Resume generated')
-    } catch (e) { toast.error(e.message) }
-    finally { setLoading(false) }
-  }
-  function download() {
-    if (!result?.resume) return
-    const blob = new Blob([result.resume], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `${(me.user.name || 'resume').replace(/\s+/g, '_')}_veyra_resume.txt`; a.click()
-    URL.revokeObjectURL(url)
-  }
-  async function copy() {
-    await navigator.clipboard.writeText(result.resume); toast.success('Copied')
-  }
-  return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold">AI Resume Generator</h1>
-          <p className="text-white/50 mt-1 text-sm">One click. AI builds a resume from your Veyra profile.</p>
-        </div>
-        <Button onClick={generate} disabled={loading} className="bg-gradient-to-r from-violet-500 to-blue-500 text-white h-11 px-5">
-          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating...</> : <><Wand2 className="w-4 h-4 mr-2" /> Generate Resume</>}
-        </Button>
-      </div>
-      {result && (
-        <div className="space-y-4">
-          <div className="glass-strong rounded-2xl border border-violet-500/20 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-black/40">
-              <div className="text-sm font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4 text-violet-400" /> Your resume</div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={copy} className="h-8 text-white/70 hover:text-white hover:bg-white/5"><Copy className="w-3.5 h-3.5 mr-1" /> Copy</Button>
-                <Button size="sm" variant="ghost" onClick={download} className="h-8 text-white/70 hover:text-white hover:bg-white/5"><Download className="w-3.5 h-3.5 mr-1" /> Download</Button>
-              </div>
-            </div>
-            <pre className="p-6 text-xs font-mono whitespace-pre-wrap text-white/90 max-h-[600px] overflow-auto leading-relaxed">{result.resume}</pre>
-          </div>
-          {result.highlights?.length > 0 && (
-            <div className="glass rounded-2xl p-5">
-              <div className="text-sm font-semibold mb-3">Key highlights</div>
-              <ul className="space-y-2">
-                {result.highlights.map((h, i) => <li key={i} className="text-sm text-white/75 flex gap-2"><ChevronRight className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />{h}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-      {!result && !loading && (
-        <div className="glass rounded-2xl p-10 text-center">
-          <FileText className="w-12 h-12 mx-auto text-white/30 mb-3" />
-          <div className="text-sm text-white/50">Fill your Profile first, then hit Generate. AI turns it into a polished resume.</div>
         </div>
       )}
     </div>
@@ -1076,8 +1014,45 @@ function InterviewTab() {
   const [sessionId, setSessionId] = useState('')
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [voiceMode, setVoiceMode] = useState(false)
+  const [listening, setListening] = useState(false)
+  const recognitionRef = useRef(null)
   const scrollRef = useRef(null)
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [messages, loading])
+
+  // TTS: speak assistant messages when in voice mode
+  useEffect(() => {
+    if (!voiceMode || messages.length === 0 || typeof window === 'undefined') return
+    const last = messages[messages.length - 1]
+    if (last.role !== 'assistant') return
+    try {
+      const utter = new SpeechSynthesisUtterance(last.content.replace(/[📝🎯•\-]/g, ' ').slice(0, 800))
+      utter.rate = 1.0; utter.pitch = 1.0
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(utter)
+    } catch {}
+  }, [messages, voiceMode])
+
+  function toggleListen() {
+    if (typeof window === 'undefined') return
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) return toast.error('Voice recognition not supported in this browser (try Chrome)')
+    if (listening) { recognitionRef.current?.stop(); return }
+    const rec = new SR()
+    rec.lang = 'en-US'
+    rec.interimResults = true
+    rec.continuous = false
+    rec.onresult = (e) => {
+      let transcript = ''
+      for (let i = e.resultIndex; i < e.results.length; ++i) transcript += e.results[i][0].transcript
+      setInput(transcript)
+    }
+    rec.onend = () => setListening(false)
+    rec.onerror = () => setListening(false)
+    recognitionRef.current = rec
+    rec.start()
+    setListening(true)
+  }
 
   async function start() {
     setStarted(true); setLoading(true); setMessages([])
@@ -1100,7 +1075,10 @@ function InterviewTab() {
     if (r.ok) setMessages(m => [...m, { role: 'assistant', content: data.answer }])
     else setMessages(m => [...m, { role: 'assistant', content: `⚠️ ${data.error || 'failed'}` }])
   }
-  function reset() { setStarted(false); setMessages([]); setSessionId(''); setInput('') }
+  function reset() {
+    setStarted(false); setMessages([]); setSessionId(''); setInput('')
+    if (typeof window !== 'undefined') window.speechSynthesis?.cancel()
+  }
 
   return (
     <div className="space-y-6">
@@ -1121,6 +1099,10 @@ function InterviewTab() {
             <Field label="Target role"><Input value={config.role} onChange={e => setConfig(c => ({ ...c, role: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
             <Field label="Company (optional)"><Input value={config.company} onChange={e => setConfig(c => ({ ...c, company: e.target.value }))} placeholder="e.g. Google" className="bg-black/40 border-white/10" /></Field>
           </div>
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-white/70">
+            <input type="checkbox" checked={voiceMode} onChange={e => setVoiceMode(e.target.checked)} className="accent-emerald-500" />
+            <Mic className="w-4 h-4 text-emerald-400" /> Voice mode (AI speaks + you can dictate your answers)
+          </label>
           <Button onClick={start} className="bg-gradient-to-r from-violet-500 to-blue-500 text-white h-11 px-5">
             <Zap className="w-4 h-4 mr-2" /> Start mock interview
           </Button>
@@ -1148,7 +1130,12 @@ function InterviewTab() {
           </div>
           <div className="p-4 border-t border-white/5">
             <form onSubmit={e => { e.preventDefault(); send() }} className="flex gap-2">
-              <Input value={input} onChange={e => setInput(e.target.value)} placeholder="Type your answer..." disabled={loading} className="bg-black/40 border-white/10 h-11" />
+              <Input value={input} onChange={e => setInput(e.target.value)} placeholder={listening ? 'Listening...' : voiceMode ? 'Tap mic to speak or type...' : 'Type your answer...'} disabled={loading} className="bg-black/40 border-white/10 h-11" />
+              {voiceMode && (
+                <Button type="button" onClick={toggleListen} className={`h-11 px-4 ${listening ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-emerald-500 hover:bg-emerald-600'} text-white`}>
+                  {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </Button>
+              )}
               <Button type="submit" disabled={loading || !input.trim()} className="h-11 px-5 bg-white text-black"><Send className="w-4 h-4" /></Button>
             </form>
           </div>
@@ -1542,6 +1529,608 @@ function NotificationsTab({ setActive }) {
           </div>
         )
       }
+    </div>
+  )
+}
+
+// ---------- RESUME STUDIO (full builder + templates + PDF + versions) ----------
+const RESUME_TEMPLATES = [
+  { key: 'modern', label: 'Modern', accent: '#10B981' },
+  { key: 'minimal', label: 'Minimal', accent: '#111827' },
+  { key: 'executive', label: 'Executive', accent: '#1E40AF' },
+  { key: 'creative', label: 'Creative', accent: '#8B5CF6' },
+]
+
+function ResumeTab({ me }) {
+  const [tab, setTab] = useState('builder') // builder | versions
+  const [sections, setSections] = useState(() => ({
+    name: me.user.name || '',
+    headline: me.user.headline || '',
+    email: me.user.email || '',
+    phone: '',
+    location: me.user.location || '',
+    linkedinUrl: me.user.linkedinUrl || '',
+    githubUrl: me.user.githubUrl || '',
+    portfolioUrl: me.user.portfolioUrl || '',
+    summary: me.user.bio || '',
+    experience: [{ company: '', role: '', location: '', startDate: '', endDate: '', bullets: [''] }],
+    education: [{ school: '', degree: '', field: '', startDate: '', endDate: '' }],
+    projects: (me.projects || []).map(p => ({ name: p.name, description: p.description || '', tech: (p.tech || []).join(', '), url: p.url || '' })),
+    skills: (me.skills || []).map(s => s.name),
+    certifications: [],
+    languages: [],
+  }))
+  const [template, setTemplate] = useState('modern')
+  const [versions, setVersions] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [genLoading, setGenLoading] = useState(false)
+  const previewRef = useRef(null)
+
+  async function loadVersions() {
+    const r = await fetch('/api/resume-versions')
+    if (r.ok) setVersions(await r.json())
+  }
+  useEffect(() => { loadVersions() }, [])
+
+  function updateSection(key, value) { setSections(s => ({ ...s, [key]: value })) }
+  function updateExp(i, field, value) {
+    setSections(s => ({ ...s, experience: s.experience.map((e, idx) => idx === i ? { ...e, [field]: value } : e) }))
+  }
+  function updateExpBullet(i, j, value) {
+    setSections(s => ({ ...s, experience: s.experience.map((e, idx) => idx === i ? { ...e, bullets: e.bullets.map((b, bi) => bi === j ? value : b) } : e) }))
+  }
+  function addExp() { setSections(s => ({ ...s, experience: [...s.experience, { company: '', role: '', location: '', startDate: '', endDate: '', bullets: [''] }] })) }
+  function removeExp(i) { setSections(s => ({ ...s, experience: s.experience.filter((_, idx) => idx !== i) })) }
+  function addBullet(i) { setSections(s => ({ ...s, experience: s.experience.map((e, idx) => idx === i ? { ...e, bullets: [...e.bullets, ''] } : e) })) }
+  function updateEdu(i, field, value) { setSections(s => ({ ...s, education: s.education.map((e, idx) => idx === i ? { ...e, [field]: value } : e) })) }
+  function addEdu() { setSections(s => ({ ...s, education: [...s.education, { school: '', degree: '', field: '', startDate: '', endDate: '' }] })) }
+  function removeEdu(i) { setSections(s => ({ ...s, education: s.education.filter((_, idx) => idx !== i) })) }
+  function updateProj(i, field, value) { setSections(s => ({ ...s, projects: s.projects.map((p, idx) => idx === i ? { ...p, [field]: value } : p) })) }
+  function addProj() { setSections(s => ({ ...s, projects: [...s.projects, { name: '', description: '', tech: '', url: '' }] })) }
+  function removeProj(i) { setSections(s => ({ ...s, projects: s.projects.filter((_, idx) => idx !== i) })) }
+
+  async function aiImproveSummary() {
+    setGenLoading(true)
+    try {
+      const r = await fetch('/api/ai/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        sessionId: 'improve-summary-' + Date.now(),
+        message: `Improve this professional summary line for a resume. Keep it 2 sentences max, no fluff, focused, ATS-friendly. Return only the improved summary text, nothing else.\n\nCurrent: "${sections.summary || 'None yet'}"\n\nContext: ${sections.name}, ${sections.headline}, target role ${me.user.targetRole || 'unspecified'}.`
+      }) })
+      const data = await r.json()
+      if (r.ok) { setSections(s => ({ ...s, summary: data.answer.trim().replace(/^["']|["']$/g, '') })); toast.success('Summary improved') }
+    } catch (e) { toast.error('AI improve failed') }
+    finally { setGenLoading(false) }
+  }
+
+  async function saveVersion() {
+    const name = prompt('Name this version:', 'Resume — ' + new Date().toLocaleDateString())
+    if (!name) return
+    setSaving(true)
+    try {
+      const r = await fetch('/api/resume-versions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, template, sections, content: JSON.stringify(sections) }) })
+      if (r.ok) { toast.success('Version saved'); loadVersions() }
+    } catch (e) { toast.error('Save failed') }
+    finally { setSaving(false) }
+  }
+
+  async function loadVersion(v) {
+    if (v.sections) { setSections(v.sections); setTemplate(v.template || 'modern'); setTab('builder'); toast.success(`Loaded: ${v.name}`) }
+  }
+  async function deleteVersion(id) {
+    if (!confirm('Delete this resume version?')) return
+    await fetch(`/api/resume-versions/${id}`, { method: 'DELETE' }); loadVersions()
+  }
+
+  async function downloadPDF() {
+    if (!previewRef.current) return
+    toast.info('Generating PDF...')
+    try {
+      // Force white background for capture
+      const el = previewRef.current
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = pageWidth
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+      let position = 0
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+      pdf.save(`${(sections.name || 'resume').replace(/\s+/g, '_')}_veyra.pdf`)
+      toast.success('PDF downloaded')
+    } catch (e) {
+      console.error(e); toast.error('PDF generation failed')
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold">Resume Studio</h1>
+          <p className="text-white/50 mt-1 text-sm">Build. Style. Save versions. Export beautiful PDFs.</p>
+        </div>
+        <div className="flex gap-2">
+          <div className="flex bg-black/40 border border-white/10 rounded-lg p-1">
+            <button onClick={() => setTab('builder')} className={`px-3 py-1 text-sm rounded ${tab === 'builder' ? 'bg-white text-black' : 'text-white/60'}`}><Edit3 className="w-3.5 h-3.5 inline mr-1" /> Builder</button>
+            <button onClick={() => setTab('versions')} className={`px-3 py-1 text-sm rounded ${tab === 'versions' ? 'bg-white text-black' : 'text-white/60'}`}><Save className="w-3.5 h-3.5 inline mr-1" /> Versions ({versions.length})</button>
+          </div>
+        </div>
+      </div>
+
+      {tab === 'builder' && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* LEFT: Editor */}
+          <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-2">
+            {/* Header */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="text-sm font-semibold text-white/70">Header</div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Full name" value={sections.name} onChange={e => updateSection('name', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="Headline" value={sections.headline} onChange={e => updateSection('headline', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="Email" value={sections.email} onChange={e => updateSection('email', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="Phone" value={sections.phone} onChange={e => updateSection('phone', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="Location" value={sections.location} onChange={e => updateSection('location', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="LinkedIn URL" value={sections.linkedinUrl} onChange={e => updateSection('linkedinUrl', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="GitHub URL" value={sections.githubUrl} onChange={e => updateSection('githubUrl', e.target.value)} className="bg-black/40 border-white/10" />
+                <Input placeholder="Portfolio URL" value={sections.portfolioUrl} onChange={e => updateSection('portfolioUrl', e.target.value)} className="bg-black/40 border-white/10" />
+              </div>
+            </div>
+            {/* Summary */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white/70">Professional Summary</div>
+                <Button size="sm" onClick={aiImproveSummary} disabled={genLoading} variant="ghost" className="h-7 text-emerald-300 hover:bg-emerald-500/10">
+                  {genLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Sparkles className="w-3 h-3 mr-1" /> AI improve</>}
+                </Button>
+              </div>
+              <Textarea rows={3} value={sections.summary} onChange={e => updateSection('summary', e.target.value)} placeholder="A short, punchy 2-sentence summary..." className="bg-black/40 border-white/10 resize-none text-sm" />
+            </div>
+            {/* Experience */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white/70">Experience</div>
+                <Button size="sm" onClick={addExp} variant="ghost" className="h-7 text-white/70"><Plus className="w-3 h-3 mr-1" /> Add</Button>
+              </div>
+              {sections.experience.map((exp, i) => (
+                <div key={i} className="border border-white/5 rounded-lg p-3 space-y-2 bg-black/20">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="Company" value={exp.company} onChange={e => updateExp(i, 'company', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <Input placeholder="Role" value={exp.role} onChange={e => updateExp(i, 'role', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <Input placeholder="Location" value={exp.location} onChange={e => updateExp(i, 'location', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <div className="grid grid-cols-2 gap-1">
+                      <Input placeholder="Start" value={exp.startDate} onChange={e => updateExp(i, 'startDate', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                      <Input placeholder="End" value={exp.endDate} onChange={e => updateExp(i, 'endDate', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    {exp.bullets.map((b, j) => (
+                      <Input key={j} placeholder="• Achievement (start with action verb, include metrics)" value={b} onChange={e => updateExpBullet(i, j, e.target.value)} className="bg-black/40 border-white/10 h-9 text-xs" />
+                    ))}
+                    <Button size="sm" variant="ghost" onClick={() => addBullet(i)} className="h-6 text-white/50 text-xs"><Plus className="w-3 h-3 mr-1" /> Bullet</Button>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => removeExp(i)} className="h-7 text-red-300 hover:bg-red-500/10 text-xs"><Trash2 className="w-3 h-3 mr-1" /> Remove</Button>
+                </div>
+              ))}
+            </div>
+            {/* Education */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white/70">Education</div>
+                <Button size="sm" onClick={addEdu} variant="ghost" className="h-7 text-white/70"><Plus className="w-3 h-3 mr-1" /> Add</Button>
+              </div>
+              {sections.education.map((edu, i) => (
+                <div key={i} className="border border-white/5 rounded-lg p-3 space-y-2 bg-black/20">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="School" value={edu.school} onChange={e => updateEdu(i, 'school', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <Input placeholder="Degree" value={edu.degree} onChange={e => updateEdu(i, 'degree', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <Input placeholder="Field of study" value={edu.field} onChange={e => updateEdu(i, 'field', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <div className="grid grid-cols-2 gap-1">
+                      <Input placeholder="Start" value={edu.startDate} onChange={e => updateEdu(i, 'startDate', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                      <Input placeholder="End" value={edu.endDate} onChange={e => updateEdu(i, 'endDate', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => removeEdu(i)} className="h-7 text-red-300 hover:bg-red-500/10 text-xs"><Trash2 className="w-3 h-3 mr-1" /> Remove</Button>
+                </div>
+              ))}
+            </div>
+            {/* Projects */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white/70">Projects</div>
+                <Button size="sm" onClick={addProj} variant="ghost" className="h-7 text-white/70"><Plus className="w-3 h-3 mr-1" /> Add</Button>
+              </div>
+              {sections.projects.map((p, i) => (
+                <div key={i} className="border border-white/5 rounded-lg p-3 space-y-2 bg-black/20">
+                  <Input placeholder="Project name" value={p.name} onChange={e => updateProj(i, 'name', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                  <Textarea rows={2} placeholder="Description" value={p.description} onChange={e => updateProj(i, 'description', e.target.value)} className="bg-black/40 border-white/10 text-sm resize-none" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="Tech (comma-separated)" value={p.tech} onChange={e => updateProj(i, 'tech', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                    <Input placeholder="URL" value={p.url} onChange={e => updateProj(i, 'url', e.target.value)} className="bg-black/40 border-white/10 h-9 text-sm" />
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => removeProj(i)} className="h-7 text-red-300 hover:bg-red-500/10 text-xs"><Trash2 className="w-3 h-3 mr-1" /> Remove</Button>
+                </div>
+              ))}
+            </div>
+            {/* Skills */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="text-sm font-semibold text-white/70">Skills (comma-separated)</div>
+              <Textarea rows={2} value={sections.skills.join(', ')} onChange={e => updateSection('skills', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="bg-black/40 border-white/10 text-sm resize-none" />
+            </div>
+            {/* Certifications */}
+            <div className="glass rounded-2xl p-5 space-y-3">
+              <div className="text-sm font-semibold text-white/70">Certifications (one per line)</div>
+              <Textarea rows={3} value={sections.certifications.join('\n')} onChange={e => updateSection('certifications', e.target.value.split('\n').filter(Boolean))} className="bg-black/40 border-white/10 text-sm resize-none" />
+            </div>
+          </div>
+
+          {/* RIGHT: Preview */}
+          <div className="space-y-4">
+            <div className="glass rounded-2xl p-4 flex flex-col md:flex-row items-center gap-3">
+              <div className="text-xs uppercase text-white/50 flex items-center gap-1 shrink-0"><Palette className="w-3.5 h-3.5" /> Template</div>
+              <div className="flex flex-wrap gap-2 flex-1">
+                {RESUME_TEMPLATES.map(t => (
+                  <button key={t.key} onClick={() => setTemplate(t.key)} className={`px-3 py-1.5 rounded-lg text-xs border transition ${template === t.key ? 'bg-white text-black border-white' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button size="sm" onClick={saveVersion} disabled={saving} variant="outline" className="border-white/10 bg-white/5 text-white h-9">
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Save className="w-3.5 h-3.5 mr-1" /> Save</>}
+                </Button>
+                <Button size="sm" onClick={downloadPDF} className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white h-9">
+                  <Download className="w-3.5 h-3.5 mr-1" /> PDF
+                </Button>
+              </div>
+            </div>
+            <div className="bg-white/[0.03] rounded-2xl p-4 border border-white/10">
+              <div className="max-h-[80vh] overflow-y-auto rounded-lg">
+                <div ref={previewRef} className="mx-auto bg-white text-gray-900 shadow-xl" style={{ width: '794px', minHeight: '1123px', padding: '48px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+                  <ResumePreview sections={sections} template={template} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'versions' && (
+        <div className="space-y-3">
+          {versions.length === 0 ? (
+            <div className="glass rounded-2xl p-10 text-center">
+              <FileText className="w-12 h-12 text-white/30 mx-auto mb-3" />
+              <div className="text-sm text-white/50">No saved versions yet. Build a resume, then hit Save.</div>
+            </div>
+          ) : (
+            versions.map(v => (
+              <div key={v.id} className="glass rounded-xl p-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center"><FileText className="w-5 h-5 text-white/70" /></div>
+                  <div>
+                    <div className="font-medium">{v.name}</div>
+                    <div className="text-xs text-white/50">Template: {v.template} · {new Date(v.createdAt).toLocaleString()}</div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => loadVersion(v)} variant="outline" className="border-white/10 bg-white/5"><Eye className="w-3.5 h-3.5 mr-1" /> Load</Button>
+                  <Button size="sm" onClick={() => deleteVersion(v.id)} variant="ghost" className="text-red-300 hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5" /></Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResumePreview({ sections, template }) {
+  const accent = RESUME_TEMPLATES.find(t => t.key === template)?.accent || '#10B981'
+  if (template === 'modern') {
+    return (
+      <div style={{ fontSize: '11px', lineHeight: 1.5, color: '#1f2937' }}>
+        <div style={{ borderBottom: `3px solid ${accent}`, paddingBottom: '12px', marginBottom: '18px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 700, margin: 0, color: '#111827' }}>{sections.name || 'Your Name'}</h1>
+          <div style={{ fontSize: '13px', color: accent, fontWeight: 600, marginTop: '2px' }}>{sections.headline || 'Your Headline'}</div>
+          <div style={{ marginTop: '6px', fontSize: '10px', color: '#4b5563' }}>
+            {[sections.email, sections.phone, sections.location, sections.linkedinUrl, sections.githubUrl].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        {sections.summary && <Section title="SUMMARY" accent={accent}><p>{sections.summary}</p></Section>}
+        {sections.experience?.some(e => e.company || e.role) && (
+          <Section title="EXPERIENCE" accent={accent}>
+            {sections.experience.filter(e => e.company || e.role).map((e, i) => (
+              <div key={i} style={{ marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                  <div><b>{e.role}</b> · {e.company}</div>
+                  <div style={{ color: '#6b7280', fontSize: '10px' }}>{e.startDate} — {e.endDate || 'Present'}</div>
+                </div>
+                {e.location && <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '3px' }}>{e.location}</div>}
+                <ul style={{ margin: '3px 0 0 16px', padding: 0 }}>
+                  {e.bullets.filter(Boolean).map((b, j) => <li key={j} style={{ marginBottom: '2px' }}>{b}</li>)}
+                </ul>
+              </div>
+            ))}
+          </Section>
+        )}
+        {sections.projects?.some(p => p.name) && (
+          <Section title="PROJECTS" accent={accent}>
+            {sections.projects.filter(p => p.name).map((p, i) => (
+              <div key={i} style={{ marginBottom: '8px' }}>
+                <div><b>{p.name}</b>{p.tech && ` · ${p.tech}`}</div>
+                {p.description && <div style={{ marginTop: '2px' }}>{p.description}</div>}
+                {p.url && <div style={{ color: accent, fontSize: '10px' }}>{p.url}</div>}
+              </div>
+            ))}
+          </Section>
+        )}
+        {sections.education?.some(e => e.school) && (
+          <Section title="EDUCATION" accent={accent}>
+            {sections.education.filter(e => e.school).map((e, i) => (
+              <div key={i} style={{ marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                <div><b>{e.school}</b>{e.degree && ` · ${e.degree}`}{e.field && `, ${e.field}`}</div>
+                <div style={{ color: '#6b7280', fontSize: '10px' }}>{e.startDate} — {e.endDate}</div>
+              </div>
+            ))}
+          </Section>
+        )}
+        {sections.skills?.length > 0 && (
+          <Section title="SKILLS" accent={accent}><div>{sections.skills.join(' · ')}</div></Section>
+        )}
+        {sections.certifications?.length > 0 && (
+          <Section title="CERTIFICATIONS" accent={accent}>
+            {sections.certifications.map((c, i) => <div key={i}>{c}</div>)}
+          </Section>
+        )}
+      </div>
+    )
+  }
+  if (template === 'minimal') {
+    return (
+      <div style={{ fontSize: '11px', lineHeight: 1.6, color: '#111827', fontFamily: 'Georgia, serif' }}>
+        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+          <h1 style={{ fontSize: '26px', fontWeight: 400, margin: 0, letterSpacing: '3px' }}>{(sections.name || 'YOUR NAME').toUpperCase()}</h1>
+          <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px', fontStyle: 'italic' }}>{sections.headline}</div>
+          <div style={{ marginTop: '6px', fontSize: '10px' }}>
+            {[sections.email, sections.phone, sections.location].filter(Boolean).join(' | ')}
+          </div>
+        </div>
+        {sections.summary && <MinSection title="Summary">{sections.summary}</MinSection>}
+        {sections.experience?.some(e => e.company || e.role) && (
+          <MinSection title="Experience">
+            {sections.experience.filter(e => e.company || e.role).map((e, i) => (
+              <div key={i} style={{ marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <b>{e.role} — {e.company}</b>
+                  <span style={{ fontStyle: 'italic', color: '#6b7280' }}>{e.startDate} to {e.endDate || 'Present'}</span>
+                </div>
+                <ul style={{ margin: '3px 0 0 16px' }}>{e.bullets.filter(Boolean).map((b, j) => <li key={j}>{b}</li>)}</ul>
+              </div>
+            ))}
+          </MinSection>
+        )}
+        {sections.projects?.some(p => p.name) && (
+          <MinSection title="Projects">
+            {sections.projects.filter(p => p.name).map((p, i) => (
+              <div key={i} style={{ marginBottom: '6px' }}><b>{p.name}</b> — {p.description} <i style={{ color: '#6b7280' }}>{p.tech}</i></div>
+            ))}
+          </MinSection>
+        )}
+        {sections.education?.some(e => e.school) && (
+          <MinSection title="Education">
+            {sections.education.filter(e => e.school).map((e, i) => (
+              <div key={i}><b>{e.school}</b>, {e.degree} in {e.field} <i style={{ color: '#6b7280' }}>({e.endDate})</i></div>
+            ))}
+          </MinSection>
+        )}
+        {sections.skills?.length > 0 && <MinSection title="Skills">{sections.skills.join(' · ')}</MinSection>}
+      </div>
+    )
+  }
+  if (template === 'executive') {
+    return (
+      <div style={{ fontSize: '11px', lineHeight: 1.5, color: '#111827' }}>
+        <div style={{ background: accent, color: 'white', padding: '20px 24px', margin: '-48px -48px 20px' }}>
+          <h1 style={{ fontSize: '30px', fontWeight: 700, margin: 0 }}>{sections.name || 'Your Name'}</h1>
+          <div style={{ fontSize: '14px', marginTop: '4px', opacity: 0.9 }}>{sections.headline}</div>
+          <div style={{ marginTop: '8px', fontSize: '10px', opacity: 0.85 }}>
+            {[sections.email, sections.phone, sections.location, sections.linkedinUrl].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        {sections.summary && <ExecSection title="EXECUTIVE SUMMARY" accent={accent}>{sections.summary}</ExecSection>}
+        {sections.experience?.some(e => e.company || e.role) && (
+          <ExecSection title="PROFESSIONAL EXPERIENCE" accent={accent}>
+            {sections.experience.filter(e => e.company || e.role).map((e, i) => (
+              <div key={i} style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', paddingBottom: '2px' }}>
+                  <div><b>{e.company}</b> — <span style={{ color: accent }}>{e.role}</span></div>
+                  <div style={{ color: '#6b7280', fontSize: '10px' }}>{e.startDate} – {e.endDate || 'Present'} · {e.location}</div>
+                </div>
+                <ul style={{ margin: '4px 0 0 18px' }}>{e.bullets.filter(Boolean).map((b, j) => <li key={j}>{b}</li>)}</ul>
+              </div>
+            ))}
+          </ExecSection>
+        )}
+        {sections.education?.some(e => e.school) && (
+          <ExecSection title="EDUCATION" accent={accent}>
+            {sections.education.filter(e => e.school).map((e, i) => (
+              <div key={i}><b>{e.degree} in {e.field}</b>, {e.school} <span style={{ color: '#6b7280' }}>({e.endDate})</span></div>
+            ))}
+          </ExecSection>
+        )}
+        {sections.skills?.length > 0 && <ExecSection title="CORE COMPETENCIES" accent={accent}>{sections.skills.join(' · ')}</ExecSection>}
+      </div>
+    )
+  }
+  // creative
+  return (
+    <div style={{ fontSize: '11px', lineHeight: 1.5, color: '#111827', display: 'grid', gridTemplateColumns: '35% 65%', gap: '20px' }}>
+      <div style={{ background: accent, color: 'white', padding: '20px', margin: '-48px 0 -48px -48px', minHeight: '1123px' }}>
+        <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>{sections.name}</h1>
+        <div style={{ fontSize: '11px', marginTop: '2px', opacity: 0.9 }}>{sections.headline}</div>
+        <div style={{ marginTop: '20px', fontSize: '10px' }}>
+          {sections.email && <div style={{ marginBottom: '4px' }}>📧 {sections.email}</div>}
+          {sections.phone && <div style={{ marginBottom: '4px' }}>📱 {sections.phone}</div>}
+          {sections.location && <div style={{ marginBottom: '4px' }}>📍 {sections.location}</div>}
+          {sections.linkedinUrl && <div style={{ marginBottom: '4px', wordBreak: 'break-all' }}>💼 {sections.linkedinUrl}</div>}
+          {sections.githubUrl && <div style={{ marginBottom: '4px', wordBreak: 'break-all' }}>⚙️ {sections.githubUrl}</div>}
+        </div>
+        {sections.skills?.length > 0 && (
+          <div style={{ marginTop: '24px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '6px', borderBottom: '2px solid white', paddingBottom: '2px' }}>SKILLS</div>
+            {sections.skills.map((s, i) => <div key={i} style={{ marginBottom: '3px', fontSize: '10px' }}>· {s}</div>)}
+          </div>
+        )}
+        {sections.certifications?.length > 0 && (
+          <div style={{ marginTop: '20px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '6px', borderBottom: '2px solid white', paddingBottom: '2px' }}>CERTIFICATIONS</div>
+            {sections.certifications.map((c, i) => <div key={i} style={{ marginBottom: '3px', fontSize: '10px' }}>{c}</div>)}
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '4px 0' }}>
+        {sections.summary && (<>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: accent, marginBottom: '4px' }}>ABOUT</div>
+          <p style={{ marginBottom: '14px' }}>{sections.summary}</p>
+        </>)}
+        {sections.experience?.some(e => e.company || e.role) && (<>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: accent, marginBottom: '4px' }}>EXPERIENCE</div>
+          {sections.experience.filter(e => e.company || e.role).map((e, i) => (
+            <div key={i} style={{ marginBottom: '10px' }}>
+              <div><b>{e.role}</b> at {e.company}</div>
+              <div style={{ color: '#6b7280', fontSize: '10px' }}>{e.startDate} – {e.endDate || 'Present'}</div>
+              <ul style={{ margin: '3px 0 0 16px' }}>{e.bullets.filter(Boolean).map((b, j) => <li key={j}>{b}</li>)}</ul>
+            </div>
+          ))}
+        </>)}
+        {sections.education?.some(e => e.school) && (<>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: accent, marginBottom: '4px' }}>EDUCATION</div>
+          {sections.education.filter(e => e.school).map((e, i) => (
+            <div key={i}><b>{e.school}</b> — {e.degree}, {e.field} <span style={{ color: '#6b7280' }}>({e.endDate})</span></div>
+          ))}
+        </>)}
+      </div>
+    </div>
+  )
+}
+function Section({ title, accent, children }) {
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: accent, borderBottom: `1px solid ${accent}`, paddingBottom: '2px', marginBottom: '6px' }}>{title}</div>
+      {children}
+    </div>
+  )
+}
+function MinSection({ title, children }) {
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={{ fontSize: '13px', fontStyle: 'italic', textAlign: 'center', margin: '0 0 6px', color: '#374151' }}>~ {title} ~</div>
+      {children}
+    </div>
+  )
+}
+function ExecSection({ title, accent, children }) {
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '1px', color: accent, marginBottom: '4px' }}>{title}</div>
+      <div>{children}</div>
+    </div>
+  )
+}
+
+// ---------- ANALYTICS ----------
+function AnalyticsTab() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    (async () => {
+      const r = await fetch('/api/analytics')
+      if (r.ok) setData(await r.json())
+      setLoading(false)
+    })()
+  }, [])
+  if (loading) return <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div>
+  if (!data) return null
+  const pipeColors = { wishlist: '#64748b', saved: '#64748b', applied: '#3B82F6', assessment: '#06B6D4', interview: '#8B5CF6', offer: '#10B981', accepted: '#10B981', rejected: '#EF4444' }
+  const activePipe = data.pipeline.filter(p => p.count > 0)
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Analytics</h1>
+        <p className="text-white/50 mt-1 text-sm">Track applications, interview rate, offer rate, and career activity.</p>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Total jobs" value={data.totals.jobs} color="from-emerald-500 to-emerald-700" />
+        <Stat label="Applications" value={data.totals.applied} color="from-blue-500 to-blue-700" />
+        <Stat label="Interview rate" value={data.interviewRate + '%'} color="from-violet-500 to-violet-700" />
+        <Stat label="Offer rate" value={data.offerRate + '%'} color="from-amber-500 to-amber-700" />
+        <Stat label="Mock interviews" value={data.totals.mockInterviews} color="from-cyan-500 to-cyan-700" />
+        <Stat label="Cover letters" value={data.totals.coverLetters} color="from-pink-500 to-pink-700" />
+        <Stat label="AI chats" value={data.totals.conversations} color="from-rose-500 to-rose-700" />
+        <Stat label="Memories" value={data.totals.memories} color="from-slate-500 to-slate-700" />
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div className="glass rounded-2xl p-5">
+          <div className="text-sm font-semibold mb-3">Applications over time</div>
+          <div style={{ width: '100%', height: 240 }}>
+            <ResponsiveContainer>
+              <LineChart data={data.weekly}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={10} />
+                <YAxis stroke="#64748b" fontSize={10} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
+                <Line type="monotone" dataKey="count" stroke="#10B981" strokeWidth={2} dot={{ fill: '#10B981', r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <div className="text-sm font-semibold mb-3">Pipeline breakdown</div>
+          <div style={{ width: '100%', height: 240 }}>
+            {activePipe.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-sm text-white/40">Add jobs to see the pipeline</div>
+            ) : (
+              <ResponsiveContainer>
+                <BarChart data={data.pipeline}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="stage" stroke="#64748b" fontSize={10} />
+                  <YAxis stroke="#64748b" fontSize={10} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background: '#0d0d0d', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }} />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                    {data.pipeline.map((p, i) => <Cell key={i} fill={pipeColors[p.stage] || '#10B981'} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+      {data.avgMatch != null && (
+        <div className="glass rounded-2xl p-5 flex items-center gap-6">
+          <div>
+            <div className="text-xs uppercase text-white/50">Average AI match</div>
+            <div className="text-4xl font-bold text-gradient-brand">{data.avgMatch}<span className="text-lg text-white/40">%</span></div>
+          </div>
+          <div className="text-sm text-white/60 flex-1">Your average AI-computed match score across all jobs. Aim for &gt;75% before applying.</div>
+        </div>
+      )}
+    </div>
+  )
+}
+function Stat({ label, value, color }) {
+  return (
+    <div className="glass rounded-xl p-4">
+      <div className="text-xs text-white/40 mb-2">{label}</div>
+      <div className={`text-2xl font-bold bg-gradient-to-r ${color} bg-clip-text text-transparent`}>{value}</div>
     </div>
   )
 }

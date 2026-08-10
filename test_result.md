@@ -348,6 +348,30 @@ backend:
         agent: "testing"
         comment: "✅ PASSED - GET /api/notifications returns notifications array. Correctly generates follow-up notification for job applied 5 days ago. Unauthenticated requests return 401."
 
+  - task: "Resume Versions CRUD"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - All CRUD operations working: (1) POST /api/resume-versions creates resume version with name, template, sections, content, returns id, (2) GET /api/resume-versions returns array of resume versions, (3) PUT /api/resume-versions/{id} updates resume version fields correctly, (4) DELETE /api/resume-versions/{id} returns {ok:true}, (5) Unauthenticated requests return 401. All 4 sub-tests passed."
+
+  - task: "Analytics Dashboard"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - GET /api/analytics returns comprehensive analytics: totals (jobs, applied, interviews, offers, mockInterviews, coverLetters, conversations, memories), pipeline array with 8 stages (wishlist, saved, applied, assessment, interview, offer, accepted, rejected), weekly array with 8 data points for last 8 weeks, avgMatch score, interviewRate (67%), offerRate (33%). Correctly aggregates data from jobs, interviews, cover letters, chats, and memories collections. Unauthenticated requests return 401."
+
 frontend:
   - task: "Landing + Dashboard UI"
     implemented: true
@@ -484,3 +508,52 @@ agent_communication:
       - Tested edge cases (missing params, unauthenticated requests)
       
       All 8 new feature sets + regression tests passed. No critical issues found. All backend APIs production-ready.
+
+  - agent: "testing"
+    message: |
+      ✅ OOM FIX VERIFIED - Server stability confirmed after --max-old-space-size bump to 2048MB
+      
+      **Issue Context:**
+      User reported "backend toh open hi nhi ho raha" (backend not opening). Root cause: Node dev server was set to --max-old-space-size=512 in package.json. After adding jsPDF, html2canvas, and recharts to frontend, dashboard compilation grew to 3356 modules and caused OOM, triggering Next.js auto-restart.
+      
+      **Fix Applied:**
+      Bumped to --max-old-space-size=2048 in package.json dev script. Restarted supervisor.
+      
+      **Verification Results (8/8 tests passed):**
+      
+      1. ✅ Server Stability - Server successfully compiled dashboard (2927 modules) and API routes (3332 modules) WITHOUT any OOM warnings after fix. Historical OOM warning exists in logs from pre-fix run, but NO new OOM warnings after max-old-space-size=2048 was applied. Server running stable (pid 3505, uptime 5+ minutes during testing).
+      
+      2. ✅ Public Endpoints Regression:
+         - GET /api/ → 200 with {message: "Veyra AI is live", model: "gpt-4o"}
+         - GET /api/me (no cookie) → 200 with {user: null}
+         - POST /api/waitlist → 200 with {ok: true}
+         - POST /api/ai/ats → 200 with atsScore (90/100), summary, arrays
+      
+      3. ✅ Protected Endpoints 401 (regression + new):
+         - All existing protected endpoints return 401: /api/jobs, /api/notifications, /api/interviews, /api/cover-letters, /api/career-dna, /api/memories
+         - NEW endpoints also return 401: /api/analytics, /api/resume-versions
+      
+      4. ✅ Resume Versions CRUD (NEW):
+         - POST /api/resume-versions → 200 with id, name, template, sections, content
+         - GET /api/resume-versions → 200 array containing created resume
+         - PUT /api/resume-versions/{id} → 200 with updated fields
+         - DELETE /api/resume-versions/{id} → 200 {ok: true}
+      
+      5. ✅ Analytics (NEW):
+         - Created 3 test jobs (applied, interview, offer statuses)
+         - GET /api/analytics → 200 with complete analytics:
+           * totals: {jobs: 3, applied: 3, interviews: 2, offers: 1, mockInterviews: 0, coverLetters: 0, conversations: 0, memories: 0}
+           * pipeline: 8 stages with counts
+           * weekly: 8 data points for last 8 weeks
+           * interviewRate: 67%, offerRate: 33%
+           * avgMatch: 90
+      
+      **Conclusion:**
+      OOM fix is working perfectly. Server is stable and can handle the increased module count (3356 modules) without memory issues. All backend endpoints (existing + new) are working correctly. No critical issues found.
+      
+      **Test Details:**
+      - Test file: /app/oom_fix_test.py
+      - Test duration: ~60 seconds
+      - All tests used production URL: https://pro-career-ai.preview.emergentagent.com/api
+      - Created and cleaned up test user (Sarah Chen) with mocked session for authenticated tests
+      - Server remained stable throughout all tests with no restarts

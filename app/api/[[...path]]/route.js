@@ -547,6 +547,105 @@ async function handleRoute(request, { params }) {
       return handleCORS(NextResponse.json(data))
     }
 
+    // ============ RESUME VERSIONS ============
+    if (route === '/resume-versions' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const docs = await db.collection('resume_versions').find({ userId: s.user.id }).sort({ createdAt: -1 }).toArray()
+      return handleCORS(NextResponse.json(docs.map(({ _id, ...x }) => x)))
+    }
+    if (route === '/resume-versions' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const doc = {
+        id: uuidv4(), userId: s.user.id,
+        name: (body.name || 'Untitled').toString().slice(0, 80),
+        template: body.template || 'modern',
+        content: body.content || '',
+        sections: body.sections || null,
+        createdAt: new Date(), updatedAt: new Date(),
+      }
+      await db.collection('resume_versions').insertOne(doc)
+      const { _id, ...rest } = doc
+      return handleCORS(NextResponse.json(rest))
+    }
+    if (route.startsWith('/resume-versions/') && method === 'PUT') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const id = route.replace('/resume-versions/', '')
+      const body = await request.json()
+      const update = { updatedAt: new Date() }
+      for (const k of ['name', 'template', 'content', 'sections']) if (k in body) update[k] = body[k]
+      await db.collection('resume_versions').updateOne({ id, userId: s.user.id }, { $set: update })
+      const doc = await db.collection('resume_versions').findOne({ id, userId: s.user.id })
+      if (!doc) return handleCORS(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+      const { _id, ...rest } = doc
+      return handleCORS(NextResponse.json(rest))
+    }
+    if (route.startsWith('/resume-versions/') && method === 'DELETE') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const id = route.replace('/resume-versions/', '')
+      await db.collection('resume_versions').deleteOne({ id, userId: s.user.id })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    // ============ ANALYTICS ============
+    if (route === '/analytics' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const uid = s.user.id
+      const [jobs, interviews, letters, chats, memoriesCount] = await Promise.all([
+        db.collection('jobs').find({ userId: uid }).toArray(),
+        db.collection('interview_sessions').find({ userId: uid }).toArray(),
+        db.collection('cover_letters').countDocuments({ userId: uid }),
+        db.collection('career_chats').countDocuments({ userId: uid }),
+        db.collection('memories').countDocuments({ userId: uid }),
+      ])
+      const byStatus = {}
+      const stages = ['wishlist', 'saved', 'applied', 'assessment', 'interview', 'offer', 'accepted', 'rejected']
+      for (const st of stages) byStatus[st] = 0
+      for (const j of jobs) if (j.status in byStatus) byStatus[j.status] += 1
+      // Applications per week (last 8 weeks)
+      const now = Date.now()
+      const weeks = []
+      for (let i = 7; i >= 0; i--) {
+        const wStart = now - (i + 1) * 7 * 86400000
+        const wEnd = now - i * 7 * 86400000
+        const count = jobs.filter(j => {
+          const t = new Date(j.appliedAt || j.createdAt).getTime()
+          return t >= wStart && t < wEnd
+        }).length
+        const label = new Date(wStart).toLocaleDateString('en', { month: 'short', day: 'numeric' })
+        weeks.push({ label, count })
+      }
+      // Match score distribution
+      const scores = jobs.filter(j => j.matchScore != null).map(j => j.matchScore)
+      const avgMatch = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
+      // Offer / interview rate
+      const totalApplied = jobs.filter(j => ['applied', 'assessment', 'interview', 'offer', 'accepted', 'rejected'].includes(j.status)).length
+      const interviewRate = totalApplied > 0 ? Math.round((jobs.filter(j => ['interview', 'offer', 'accepted'].includes(j.status)).length / totalApplied) * 100) : 0
+      const offerRate = totalApplied > 0 ? Math.round((jobs.filter(j => ['offer', 'accepted'].includes(j.status)).length / totalApplied) * 100) : 0
+      return handleCORS(NextResponse.json({
+        totals: {
+          jobs: jobs.length,
+          applied: byStatus.applied + byStatus.assessment + byStatus.interview + byStatus.offer + byStatus.accepted + byStatus.rejected,
+          interviews: byStatus.interview + byStatus.offer + byStatus.accepted,
+          offers: byStatus.offer + byStatus.accepted,
+          mockInterviews: interviews.length,
+          coverLetters: letters,
+          conversations: chats,
+          memories: memoriesCount,
+        },
+        pipeline: stages.map(st => ({ stage: st, count: byStatus[st] })),
+        weekly: weeks,
+        avgMatch,
+        interviewRate,
+        offerRate,
+      }))
+    }
+
     // ============ JOBS TRACKER ============
     if (route === '/jobs' && method === 'GET') {
       const s = await getSession()
