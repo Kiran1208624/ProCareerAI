@@ -9,7 +9,7 @@ import {
   Cloud, GitBranch, Linkedin, Brain, Compass, Plus, X, RefreshCw,
   Building2, Trash2, ExternalLink, MapPin, Award, BookOpen, Settings,
   MessageSquare, Fingerprint, Map, Target as TargetIcon, Bell, Sparkle, GraduationCap,
-  Mic, MicOff, Save, Edit3, Eye, Palette
+  Mic, MicOff, Save, Edit3, Eye, Palette, Code2, Users, Sunrise, Play
 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
@@ -27,6 +27,7 @@ const NAV = [
   { key: 'profile', label: 'Profile', icon: User },
   { key: 'jobs', label: 'Job Tracker', icon: Briefcase },
   { key: 'interview', label: 'Mock Interview', icon: MessageSquare },
+  { key: 'coding', label: 'Coding Interview', icon: Code2 },
   { key: 'cover', label: 'Cover Letter', icon: FileText },
   { key: 'careerdna', label: 'Career DNA', icon: Fingerprint },
   { key: 'roadmap', label: 'Learning Roadmap', icon: Map },
@@ -40,6 +41,7 @@ const NAV = [
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'drive', label: 'Drive', icon: Cloud },
   { key: 'notifications', label: 'Notifications', icon: Bell },
+  { key: 'recruit', label: 'Recruit', icon: Users, requireRole: ['recruiter', 'company_admin', 'college_admin'] },
   { key: 'settings', label: 'Settings', icon: Settings },
 ]
 
@@ -93,7 +95,7 @@ function Dashboard() {
           </div>
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV.map(n => (
+          {NAV.filter(n => !n.requireRole || (me.user.role && n.requireRole.includes(me.user.role))).map(n => (
             <button key={n.key} onClick={() => setActive(n.key)}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${active === n.key ? 'bg-white/[0.06] text-white' : 'text-white/60 hover:bg-white/[0.03] hover:text-white'}`}>
               <n.icon className="w-4 h-4" />
@@ -126,6 +128,8 @@ function Dashboard() {
           {active === 'profile' && <ProfileTab me={me} reload={loadMe} />}
           {active === 'jobs' && <JobsTab />}
           {active === 'interview' && <InterviewTab />}
+          {active === 'coding' && <CodingTab />}
+          {active === 'recruit' && <RecruitTab />}
           {active === 'cover' && <CoverLetterTab />}
           {active === 'careerdna' && <CareerDNATab />}
           {active === 'roadmap' && <RoadmapTab me={me} />}
@@ -178,6 +182,8 @@ function HomeTab({ me, setActive }) {
           </div>
         ))}
       </div>
+
+      <DailyBriefingCard />
 
       <div>
         <div className="text-sm font-semibold mb-3 text-white/70">Quick actions</div>
@@ -305,6 +311,10 @@ function ProfileTab({ me, reload }) {
     linkedinUrl: me.user.linkedinUrl || '',
     githubUrl: me.user.githubUrl || '',
     portfolioUrl: me.user.portfolioUrl || '',
+    role: me.user.role || 'professional',
+    discoverable: !!me.user.discoverable,
+    orgName: me.user.orgName || '',
+    orgType: me.user.orgType || '',
   })
   const [saving, setSaving] = useState(false)
   const [skillInput, setSkillInput] = useState('')
@@ -348,6 +358,34 @@ function ProfileTab({ me, reload }) {
       <div>
         <h1 className="text-3xl font-bold">Professional Identity</h1>
         <p className="text-white/50 mt-1 text-sm">This shapes every AI recommendation Veyra gives you.</p>
+      </div>
+
+      <div className="glass rounded-2xl p-6 space-y-4">
+        <div className="text-sm font-semibold text-white/70">Role & Visibility</div>
+        <div className="grid md:grid-cols-2 gap-3">
+          <Field label="Your role in Veyra">
+            <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+              <option value="student">Student</option>
+              <option value="professional">Working Professional</option>
+              <option value="recruiter">Recruiter</option>
+              <option value="company_admin">Company Admin</option>
+              <option value="college_admin">College Admin</option>
+            </select>
+          </Field>
+          <Field label="Organization (college/company)">
+            <Input value={form.orgName} onChange={e => setForm(f => ({ ...f, orgName: e.target.value }))} placeholder="e.g. IIT Bombay / Google" className="bg-black/40 border-white/10" />
+          </Field>
+        </div>
+        <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg bg-black/40 border border-white/10">
+          <input type="checkbox" checked={form.discoverable} onChange={e => setForm(f => ({ ...f, discoverable: e.target.checked }))} className="mt-1 accent-emerald-500" />
+          <div>
+            <div className="text-sm font-medium">Be discoverable by recruiters</div>
+            <div className="text-xs text-white/50 mt-0.5">Recruiters and college placement cells on Veyra can find your profile.</div>
+          </div>
+        </label>
+        <Button onClick={saveProfile} disabled={saving} variant="outline" className="border-white/10 bg-white/5 self-start">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null} Save role
+        </Button>
       </div>
 
       <div className="glass rounded-2xl p-6 space-y-4">
@@ -2131,6 +2169,350 @@ function Stat({ label, value, color }) {
     <div className="glass rounded-xl p-4">
       <div className="text-xs text-white/40 mb-2">{label}</div>
       <div className={`text-2xl font-bold bg-gradient-to-r ${color} bg-clip-text text-transparent`}>{value}</div>
+    </div>
+  )
+}
+
+// ---------- DAILY BRIEFING CARD (home) ----------
+function DailyBriefingCard() {
+  const [briefing, setBriefing] = useState(null)
+  const [loading, setLoading] = useState(false)
+  async function fetchBriefing() {
+    setLoading(true)
+    try {
+      const r = await fetch('/api/daily-briefing')
+      const data = await r.json()
+      if (r.ok) setBriefing(data)
+      else toast.error(data.error || 'Briefing failed')
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  return (
+    <div className="glass-strong rounded-2xl p-6 border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Sunrise className="w-5 h-5 text-amber-400" />
+          <div>
+            <div className="text-sm font-semibold">Your Daily Briefing</div>
+            <div className="text-[11px] text-white/40">AI-curated for you</div>
+          </div>
+        </div>
+        <Button size="sm" onClick={fetchBriefing} disabled={loading} className="bg-white text-black hover:bg-white/90 h-8">
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : briefing ? <><RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh</> : <><Sparkles className="w-3.5 h-3.5 mr-1" /> Get today's briefing</>}
+        </Button>
+      </div>
+      {briefing?.briefing ? (
+        <div className="space-y-3 mt-4">
+          <div className="text-lg font-semibold text-gradient">{briefing.briefing.greeting}</div>
+          <div className="glass rounded-xl p-4 border border-amber-500/20">
+            <div className="text-[10px] uppercase text-amber-400 mb-1">Focus of the day</div>
+            <div className="text-sm text-white/90">{briefing.briefing.focusOfDay}</div>
+          </div>
+          {briefing.briefing.todoList?.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase text-white/50 mb-2">Today's plan</div>
+              <ul className="space-y-1.5">
+                {briefing.briefing.todoList.map((t, i) => (
+                  <li key={i} className="text-sm text-white/80 flex items-start gap-2">
+                    <div className="w-4 h-4 rounded border border-white/20 shrink-0 mt-0.5" />
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {briefing.briefing.opportunityHint && (
+            <div className="glass rounded-xl p-3 border border-blue-500/20 flex items-start gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
+              <div className="text-xs text-white/80">{briefing.briefing.opportunityHint}</div>
+            </div>
+          )}
+          {briefing.briefing.motivationalNote && (
+            <div className="text-xs text-white/60 italic text-center pt-2">"{briefing.briefing.motivationalNote}"</div>
+          )}
+        </div>
+      ) : !loading && (
+        <div className="text-xs text-white/40 mt-2">Tap the button to get your personalized morning briefing.</div>
+      )}
+    </div>
+  )
+}
+
+// ---------- CODING INTERVIEW ----------
+const CODE_TOPICS = ['arrays', 'strings', 'linked lists', 'trees', 'graphs', 'dynamic programming', 'system design (mini)', 'hash tables', 'sorting', 'recursion']
+const CODE_LANGS = ['JavaScript', 'Python', 'Java', 'C++', 'Go', 'TypeScript']
+
+function CodingTab() {
+  const [config, setConfig] = useState({ topic: 'arrays', difficulty: 'medium', language: 'JavaScript' })
+  const [challenge, setChallenge] = useState(null)
+  const [code, setCode] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [grading, setGrading] = useState(false)
+  const [grade, setGrade] = useState(null)
+  const [hintsShown, setHintsShown] = useState(0)
+
+  async function newChallenge() {
+    setLoading(true); setChallenge(null); setGrade(null); setCode(''); setHintsShown(0)
+    try {
+      const r = await fetch('/api/ai/coding-challenge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setChallenge(data); setCode(data.starterCode || '')
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  async function submitCode() {
+    if (!challenge || !code.trim()) return toast.error('Write some code first')
+    setGrading(true); setGrade(null)
+    try {
+      const r = await fetch('/api/ai/coding-grade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ problem: challenge.prompt, code, language: config.language }) })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setGrade(data); toast.success('Graded!')
+    } catch (e) { toast.error(e.message) }
+    finally { setGrading(false) }
+  }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Coding Interview</h1>
+        <p className="text-white/50 mt-1 text-sm">AI generates a problem. You write code. AI grades correctness, complexity, code quality.</p>
+      </div>
+      <div className="glass rounded-2xl p-5">
+        <div className="grid md:grid-cols-4 gap-3">
+          <Field label="Topic">
+            <select value={config.topic} onChange={e => setConfig(c => ({ ...c, topic: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+              {CODE_TOPICS.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Difficulty">
+            <select value={config.difficulty} onChange={e => setConfig(c => ({ ...c, difficulty: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </Field>
+          <Field label="Language">
+            <select value={config.language} onChange={e => setConfig(c => ({ ...c, language: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
+              {CODE_LANGS.map(l => <option key={l}>{l}</option>)}
+            </select>
+          </Field>
+          <div className="flex items-end">
+            <Button onClick={newChallenge} disabled={loading} className="w-full h-10 bg-gradient-to-r from-violet-500 to-blue-500 text-white">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Code2 className="w-4 h-4 mr-1" /> New problem</>}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {challenge && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="space-y-3">
+            <div className="glass-strong rounded-2xl p-5 border border-violet-500/20">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-lg font-bold">{challenge.title}</div>
+                  <Badge className={`text-[10px] mt-1 ${challenge.difficulty === 'hard' ? 'bg-red-500/20 text-red-300 border-red-500/30' : challenge.difficulty === 'easy' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'} border`}>{challenge.difficulty}</Badge>
+                </div>
+              </div>
+              <p className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed">{challenge.prompt}</p>
+              {challenge.constraints?.length > 0 && (
+                <div className="mt-3">
+                  <div className="text-[10px] uppercase text-white/50 mb-1">Constraints</div>
+                  <ul className="text-xs text-white/70 space-y-0.5">{challenge.constraints.map((c, i) => <li key={i}>· {c}</li>)}</ul>
+                </div>
+              )}
+              {challenge.examples?.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <div className="text-[10px] uppercase text-white/50">Examples</div>
+                  {challenge.examples.map((e, i) => (
+                    <div key={i} className="bg-black/40 rounded p-2 font-mono text-xs">
+                      <div><span className="text-white/40">Input:</span> {e.input}</div>
+                      <div><span className="text-white/40">Output:</span> {e.output}</div>
+                      {e.explanation && <div className="text-white/60 mt-1">{e.explanation}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {challenge.hints?.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center gap-2">
+                    <div className="text-[10px] uppercase text-white/50">Hints ({hintsShown}/{challenge.hints.length})</div>
+                    {hintsShown < challenge.hints.length && (
+                      <Button size="sm" variant="ghost" onClick={() => setHintsShown(h => h + 1)} className="h-6 text-[10px] text-amber-300 hover:bg-amber-500/10">Reveal next hint</Button>
+                    )}
+                  </div>
+                  {challenge.hints.slice(0, hintsShown).map((h, i) => (
+                    <div key={i} className="text-xs text-white/70 mt-1 pl-3 border-l-2 border-amber-500/30">💡 {h}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="glass-strong rounded-2xl overflow-hidden border border-white/10">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-black/40">
+                <div className="text-xs font-mono text-white/60">solution.{config.language.toLowerCase().slice(0, 3)}</div>
+                <Button size="sm" onClick={submitCode} disabled={grading || !code.trim()} className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white h-8">
+                  {grading ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> Grading...</> : <><Play className="w-3.5 h-3.5 mr-1" /> Submit</>}
+                </Button>
+              </div>
+              <Textarea value={code} onChange={e => setCode(e.target.value)} rows={18} spellCheck={false}
+                className="bg-black/60 border-0 rounded-none font-mono text-xs resize-none focus-visible:ring-0" />
+            </div>
+            {grade && (
+              <div className="space-y-3">
+                <div className="glass rounded-2xl p-5 border border-emerald-500/20">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div className="text-xs uppercase text-white/50">Overall Score</div>
+                      <div className="text-4xl font-bold text-gradient-brand">{grade.overallScore}<span className="text-lg text-white/40">/100</span></div>
+                    </div>
+                    <div className="text-right text-xs">
+                      <div className="text-white/50">Correctness: <b className="text-emerald-300">{grade.correctness}/100</b></div>
+                      <div className="text-white/50">Quality: <b className="text-blue-300">{grade.codeQuality}/100</b></div>
+                      {grade.complexity && <div className="text-white/50">⏱ {grade.complexity.time} · 💾 {grade.complexity.space}</div>}
+                    </div>
+                  </div>
+                  <p className="text-sm text-white/80">{grade.verdict}</p>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <div className="glass rounded-xl p-4">
+                    <div className="text-xs font-semibold text-emerald-400 mb-2">Strengths</div>
+                    <ul className="space-y-1">{grade.strengths?.map((s, i) => <li key={i} className="text-xs text-white/75 flex gap-1"><ChevronRight className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />{s}</li>)}</ul>
+                  </div>
+                  <div className="glass rounded-xl p-4">
+                    <div className="text-xs font-semibold text-amber-400 mb-2">Improvements</div>
+                    <ul className="space-y-1">{grade.improvements?.map((s, i) => <li key={i} className="text-xs text-white/75 flex gap-1"><ChevronRight className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />{s}</li>)}</ul>
+                  </div>
+                </div>
+                {grade.improvedSolution && (
+                  <div className="glass-strong rounded-2xl overflow-hidden border border-blue-500/20">
+                    <div className="px-4 py-2 border-b border-white/5 bg-black/40 text-xs font-semibold flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-400" /> AI-improved solution
+                    </div>
+                    <pre className="p-4 font-mono text-xs whitespace-pre-wrap text-white/85 overflow-auto max-h-64">{grade.improvedSolution}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------- RECRUIT (Recruiter / College portal) ----------
+function RecruitTab() {
+  const [candidates, setCandidates] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [q, setQ] = useState('')
+  const [skill, setSkill] = useState('')
+  const [selected, setSelected] = useState(null)
+  async function search() {
+    setLoading(true)
+    try {
+      const url = `/api/candidates?q=${encodeURIComponent(q)}&skill=${encodeURIComponent(skill)}`
+      const r = await fetch(url); const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Failed')
+      setCandidates(data.candidates || [])
+    } catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  async function view(id) {
+    const r = await fetch(`/api/candidates/${id}`); const data = await r.json()
+    if (r.ok) setSelected(data.candidate)
+  }
+  useEffect(() => { search() }, [])
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Recruit</h1>
+        <p className="text-white/50 mt-1 text-sm">Discover discoverable candidates on Veyra.</p>
+      </div>
+      <div className="glass rounded-2xl p-4 flex flex-col md:flex-row gap-2">
+        <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name / headline / location" className="bg-black/40 border-white/10 flex-1" />
+        <Input value={skill} onChange={e => setSkill(e.target.value)} placeholder="Filter by skill" className="bg-black/40 border-white/10 flex-1" />
+        <Button onClick={search} disabled={loading} className="bg-white text-black"><Compass className="w-4 h-4 mr-1" /> Search</Button>
+      </div>
+      {loading ? <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div> :
+        candidates.length === 0 ? (
+          <div className="glass rounded-2xl p-10 text-center">
+            <Users className="w-12 h-12 text-white/30 mx-auto mb-3" />
+            <div className="text-sm text-white/50">No discoverable candidates yet.</div>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-3">
+            {candidates.map(c => (
+              <button key={c.id} onClick={() => view(c.id)} className="glass rounded-xl p-4 text-left hover:bg-white/[0.04] transition">
+                <div className="flex items-start gap-3">
+                  {c.picture ? <img src={c.picture} alt="" className="w-10 h-10 rounded-full" /> : <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">{c.name?.[0]}</div>}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold truncate">{c.name}</div>
+                    <div className="text-xs text-white/60 truncate">{c.headline}</div>
+                    <div className="flex items-center gap-2 text-[11px] text-white/40 mt-1">
+                      {c.location && <span className="flex items-center gap-0.5"><MapPin className="w-3 h-3" />{c.location}</span>}
+                      {c.yearsExperience != null && <span>{c.yearsExperience}y exp</span>}
+                      {c.projectsCount > 0 && <span>{c.projectsCount} projects</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {c.skills.slice(0, 5).map((s, i) => <Badge key={i} className="bg-white/5 border border-white/10 text-white/60 text-[9px]">{s}</Badge>)}
+                      {c.skills.length > 5 && <span className="text-[10px] text-white/40">+{c.skills.length - 5}</span>}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )
+      }
+      {selected && (
+        <div onClick={() => setSelected(null)} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div onClick={e => e.stopPropagation()} className="glass-strong rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 border border-white/10">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                {selected.picture ? <img src={selected.picture} alt="" className="w-14 h-14 rounded-full" /> : <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center text-xl">{selected.name?.[0]}</div>}
+                <div>
+                  <div className="text-lg font-bold">{selected.name}</div>
+                  <div className="text-sm text-white/60">{selected.headline}</div>
+                  <div className="text-xs text-white/40 mt-0.5 flex items-center gap-2">
+                    {selected.location && <><MapPin className="w-3 h-3" />{selected.location}</>}
+                    {selected.yearsExperience != null && <span>· {selected.yearsExperience}y experience</span>}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setSelected(null)} className="text-white/40 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            {selected.bio && <p className="text-sm text-white/75 mb-4">{selected.bio}</p>}
+            <div className="flex gap-2 mb-4">
+              {selected.linkedinUrl && <a href={selected.linkedinUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-300 hover:underline flex items-center gap-1"><Linkedin className="w-3 h-3" /> LinkedIn</a>}
+              {selected.githubUrl && <a href={selected.githubUrl} target="_blank" rel="noreferrer" className="text-xs text-white/70 hover:underline flex items-center gap-1"><GitBranch className="w-3 h-3" /> GitHub</a>}
+              {selected.portfolioUrl && <a href={selected.portfolioUrl} target="_blank" rel="noreferrer" className="text-xs text-white/70 hover:underline flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Portfolio</a>}
+            </div>
+            {selected.skills?.length > 0 && (
+              <div className="mb-4">
+                <div className="text-xs uppercase text-white/50 mb-2">Skills</div>
+                <div className="flex flex-wrap gap-1.5">{selected.skills.map((s, i) => <Badge key={i} className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">{s}</Badge>)}</div>
+              </div>
+            )}
+            {selected.projects?.length > 0 && (
+              <div>
+                <div className="text-xs uppercase text-white/50 mb-2">Projects</div>
+                <div className="space-y-2">
+                  {selected.projects.map((p, i) => (
+                    <div key={i} className="glass rounded-lg p-3">
+                      <div className="font-medium text-sm">{p.name}</div>
+                      {p.description && <div className="text-xs text-white/60 mt-1">{p.description}</div>}
+                      {p.tech?.length > 0 && <div className="flex flex-wrap gap-1 mt-1">{p.tech.map((t, j) => <Badge key={j} className="bg-white/5 border border-white/10 text-white/70 text-[10px]">{t}</Badge>)}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

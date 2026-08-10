@@ -282,7 +282,7 @@ async function handleRoute(request, { params }) {
       const s = await getSession()
       if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
       const body = await request.json()
-      const allowed = ['name', 'headline', 'bio', 'location', 'targetRole', 'yearsExperience', 'linkedinUrl', 'githubUrl', 'portfolioUrl']
+      const allowed = ['name', 'headline', 'bio', 'location', 'targetRole', 'yearsExperience', 'linkedinUrl', 'githubUrl', 'portfolioUrl', 'role', 'discoverable', 'orgName', 'orgType']
       const update = {}
       for (const k of allowed) if (k in body) update[k] = body[k]
       update.updatedAt = new Date()
@@ -885,6 +885,126 @@ async function handleRoute(request, { params }) {
       if (!profile.headline) notifications.push({ id: 'headline', type: 'profile', title: 'Add your headline', body: 'A crisp headline helps Veyra personalize every recommendation.', createdAt: new Date() })
       if (!profile.targetRole) notifications.push({ id: 'target', type: 'profile', title: 'Set your target role', body: 'Tell Veyra your dream role so the Opportunity Engine gets sharper.', createdAt: new Date() })
       return handleCORS(NextResponse.json({ notifications }))
+    }
+
+    // ============ CANDIDATE DISCOVERY (Recruiter / College portals) ============
+    if (route === '/candidates' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const role = s.user.role
+      if (!['recruiter', 'company_admin', 'college_admin'].includes(role)) {
+        return handleCORS(NextResponse.json({ error: 'Only recruiters, companies, and college admins can browse candidates' }, { status: 403 }))
+      }
+      const url = new URL(request.url)
+      const q = (url.searchParams.get('q') || '').toLowerCase()
+      const skill = (url.searchParams.get('skill') || '').toLowerCase()
+      const filter = { discoverable: true, id: { $ne: s.user.id } }
+      if (role === 'college_admin' && s.user.orgName) filter.orgName = s.user.orgName
+      const users = await db.collection('users').find(filter).sort({ updatedAt: -1 }).limit(200).toArray()
+      const enriched = []
+      for (const u of users) {
+        if (q && !(`${u.name || ''} ${u.headline || ''} ${u.location || ''}`.toLowerCase().includes(q))) continue
+        const skills = await db.collection('skills').find({ userId: u.id }).toArray()
+        if (skill && !skills.some(sk => sk.name.toLowerCase().includes(skill))) continue
+        const projectsCount = await db.collection('projects').countDocuments({ userId: u.id })
+        enriched.push({
+          id: u.id, name: u.name, picture: u.picture, headline: u.headline,
+          location: u.location, targetRole: u.targetRole, yearsExperience: u.yearsExperience,
+          bio: u.bio, orgName: u.orgName, orgType: u.orgType,
+          skills: skills.map(s => s.name), projectsCount,
+        })
+      }
+      return handleCORS(NextResponse.json({ candidates: enriched, total: enriched.length }))
+    }
+    if (route.startsWith('/candidates/') && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      if (!['recruiter', 'company_admin', 'college_admin'].includes(s.user.role)) {
+        return handleCORS(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
+      }
+      const cid = route.replace('/candidates/', '')
+      const u = await db.collection('users').findOne({ id: cid, discoverable: true })
+      if (!u) return handleCORS(NextResponse.json({ error: 'Not found' }, { status: 404 }))
+      const [skills, projects] = await Promise.all([
+        db.collection('skills').find({ userId: cid }).toArray(),
+        db.collection('projects').find({ userId: cid }).toArray(),
+      ])
+      return handleCORS(NextResponse.json({
+        candidate: {
+          id: u.id, name: u.name, picture: u.picture, headline: u.headline,
+          bio: u.bio, location: u.location, targetRole: u.targetRole,
+          yearsExperience: u.yearsExperience, linkedinUrl: u.linkedinUrl,
+          githubUrl: u.githubUrl, portfolioUrl: u.portfolioUrl, orgName: u.orgName,
+          skills: skills.map(s => s.name),
+          projects: projects.map(({ _id, userId, ...x }) => x),
+        },
+      }))
+    }
+
+    // ============ AI: CODING INTERVIEW ============
+    if (route === '/ai/coding-challenge' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const topic = body.topic || 'arrays'
+      const difficulty = body.difficulty || 'medium'
+      const language = body.language || 'JavaScript'
+      const raw = await complete([
+        { role: 'system', content: 'You design great coding interview problems. Return JSON only.' },
+        { role: 'user', content: `Design a ${difficulty} coding interview problem on the topic: ${topic}. Language: ${language}.\n\nReturn JSON: {"title": string, "difficulty": string, "prompt": string (full problem statement), "constraints": string[], "examples": [{"input": string, "output": string, "explanation": string}] (2 items), "hints": string[3], "starterCode": string}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      return handleCORS(NextResponse.json(data))
+    }
+    if (route === '/ai/coding-grade' && method === 'POST') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const body = await request.json()
+      const raw = await complete([
+        { role: 'system', content: 'You are a rigorous but supportive coding interviewer. Grade candidate solutions on correctness, complexity, code quality, and edge cases. Return JSON only.' },
+        { role: 'user', content: `Problem:\n${body.problem || ''}\n\nCandidate solution (${body.language || 'JavaScript'}):\n\`\`\`\n${body.code || ''}\n\`\`\`\n\nReturn JSON: {"overallScore": number 0-100, "correctness": number 0-100, "complexity": {"time": string, "space": string}, "codeQuality": number 0-100, "edgeCases": string[], "strengths": string[3], "improvements": string[3], "verdict": string, "improvedSolution": string}` },
+      ], { response_format: { type: 'json_object' } })
+      const data = parseJson(raw)
+      await db.collection('coding_attempts').insertOne({ id: uuidv4(), userId: s.user.id, problem: body.problem, code: body.code, language: body.language, grade: data, createdAt: new Date() })
+      return handleCORS(NextResponse.json(data))
+    }
+
+    // ============ DAILY BRIEFING ============
+    if (route === '/daily-briefing' && method === 'GET') {
+      const s = await getSession()
+      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      const uid = s.user.id
+      const now = new Date()
+      const [jobs, ctx] = await Promise.all([
+        db.collection('jobs').find({ userId: uid }).toArray(),
+        loadUserContext(uid),
+      ])
+      let events = []
+      try {
+        const client = await getAuthedGoogle(uid)
+        if (client) {
+          const cal = calendarApi(client)
+          const r = await cal.events.list({
+            calendarId: 'primary', singleEvents: true, orderBy: 'startTime',
+            timeMin: now.toISOString(),
+            timeMax: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+            maxResults: 5,
+          })
+          events = (r.data.items || []).map(e => ({ summary: e.summary, start: e.start?.dateTime || e.start?.date, location: e.location }))
+        }
+      } catch {}
+      const followUps = jobs.filter(j => j.status === 'applied' && j.appliedAt).filter(j => {
+        const days = Math.floor((now - new Date(j.appliedAt)) / 86400000)
+        return days >= 5 && days <= 14
+      }).map(j => ({ company: j.company, role: j.role, days: Math.floor((now - new Date(j.appliedAt)) / 86400000) }))
+      const activeInterviews = jobs.filter(j => j.status === 'interview' || j.status === 'assessment')
+
+      const raw = await complete([
+        { role: 'system', content: 'You write a short, energizing morning career briefing for a busy professional. Warm, concise, motivating. Return JSON only.' },
+        { role: 'user', content: `USER: ${contextToString(ctx)}\n\nToday: ${now.toDateString()}\nUpcoming events today: ${JSON.stringify(events)}\nPending follow-ups: ${JSON.stringify(followUps)}\nActive interviews in pipeline: ${activeInterviews.length}\n\nReturn JSON: {"greeting": string (personal, warm, 1 sentence), "focusOfDay": string, "todoList": string[3-5], "opportunityHint": string, "motivationalNote": string}` },
+      ], { response_format: { type: 'json_object' } })
+      const briefing = parseJson(raw)
+      return handleCORS(NextResponse.json({ briefing, events, followUps, date: now.toISOString() }))
     }
 
     // ============ WAITLIST ============

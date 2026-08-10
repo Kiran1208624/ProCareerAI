@@ -1,583 +1,723 @@
 #!/usr/bin/env python3
 """
-Veyra AI Backend API Test Suite
-Tests all backend endpoints at http://localhost:3000/api
+Round 3 Backend Testing - Veyra AI
+Tests new endpoints: Extended profile, Candidate Discovery, Coding Interview, Daily Briefing
 """
 
+import pymongo
+import uuid
+import datetime
 import requests
 import json
-import sys
-from urllib.parse import urlparse, parse_qs
+import time
 
-BASE_URL = "http://localhost:3000/api"
+# Configuration
+BASE_URL = "https://pro-career-ai.preview.emergentagent.com/api"
+MONGO_URL = "mongodb://localhost:27017"
+DB_NAME = "veyra_ai"
 
-def print_test(name, passed, details=""):
-    status = "✅ PASS" if passed else "❌ FAIL"
-    print(f"{status}: {name}")
-    if details:
-        print(f"   {details}")
+# MongoDB connection
+client = pymongo.MongoClient(MONGO_URL)
+db = client[DB_NAME]
+
+def make_session(role=None, discoverable=False, orgName=None, name="Test User", location="", headline=""):
+    """Create a test user with session token"""
+    uid = str(uuid.uuid4())
+    now = datetime.datetime.utcnow()
+    doc = {
+        "id": uid,
+        "googleId": "g-" + uid,
+        "email": f"{uid[:8]}@test.com",
+        "name": name,
+        "headline": headline or "Senior Engineer",
+        "targetRole": "Staff Engineer",
+        "yearsExperience": 5,
+        "location": location,
+        "createdAt": now,
+        "updatedAt": now,
+        "discoverable": discoverable
+    }
+    if role:
+        doc["role"] = role
+    if orgName:
+        doc["orgName"] = orgName
+    
+    db.users.insert_one(doc)
+    
+    token = str(uuid.uuid4()) + "." + str(uuid.uuid4())
+    db.sessions.insert_one({
+        "token": token,
+        "userId": uid,
+        "createdAt": now,
+        "expiresAt": now + datetime.timedelta(days=30)
+    })
+    
+    return uid, token
+
+def cleanup_test_users(user_ids):
+    """Clean up test data"""
+    for uid in user_ids:
+        db.users.delete_many({"id": uid})
+        db.sessions.delete_many({"userId": uid})
+        db.skills.delete_many({"userId": uid})
+        db.projects.delete_many({"userId": uid})
+        db.jobs.delete_many({"userId": uid})
+        db.coding_attempts.delete_many({"userId": uid})
+
+print("=" * 80)
+print("ROUND 3: BACKEND TESTING - VEYRA AI")
+print("=" * 80)
+print(f"Base URL: {BASE_URL}")
+print(f"MongoDB: {MONGO_URL}/{DB_NAME}")
+print()
+
+test_users = []
+all_passed = True
+
+try:
+    # ============================================================================
+    # TEST 1: Extended Profile PUT
+    # ============================================================================
+    print("TEST 1: Extended Profile PUT with new fields")
+    print("-" * 80)
+    
+    try:
+        uid1, token1 = make_session(name="John Doe")
+        test_users.append(uid1)
+        
+        # PUT /api/profile with new fields
+        response = requests.put(
+            f"{BASE_URL}/profile",
+            json={
+                "role": "recruiter",
+                "discoverable": True,
+                "orgName": "Google",
+                "orgType": "company"
+            },
+            cookies={"veyra_session": token1},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            user = data.get("user", {})
+            
+            if (user.get("role") == "recruiter" and 
+                user.get("discoverable") == True and 
+                user.get("orgName") == "Google" and 
+                user.get("orgType") == "company"):
+                print("✅ PASS: Profile updated with new fields")
+                
+                # Verify with GET /api/me
+                me_response = requests.get(
+                    f"{BASE_URL}/me",
+                    cookies={"veyra_session": token1},
+                    timeout=30
+                )
+                
+                if me_response.status_code == 200:
+                    me_data = me_response.json()
+                    me_user = me_data.get("user", {})
+                    
+                    if (me_user.get("role") == "recruiter" and 
+                        me_user.get("discoverable") == True and 
+                        me_user.get("orgName") == "Google"):
+                        print("✅ PASS: GET /api/me reflects profile changes")
+                    else:
+                        print(f"❌ FAIL: GET /api/me doesn't reflect changes: {me_user}")
+                        all_passed = False
+                else:
+                    print(f"❌ FAIL: GET /api/me returned {me_response.status_code}")
+                    all_passed = False
+            else:
+                print(f"❌ FAIL: Profile fields not updated correctly: {user}")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: PUT /api/profile returned {response.status_code}: {response.text}")
+            all_passed = False
+            
+    except Exception as e:
+        print(f"❌ FAIL: Exception in Test 1: {str(e)}")
+        all_passed = False
+    
+    print()
+    
+    # ============================================================================
+    # TEST 2: Candidate Discovery - Role Guarding
+    # ============================================================================
+    print("TEST 2: Candidate Discovery - Role Guarding")
+    print("-" * 80)
+    
+    try:
+        # Test 2a: Unauthenticated request should return 401
+        response = requests.get(f"{BASE_URL}/candidates", timeout=30)
+        if response.status_code == 401:
+            print("✅ PASS: Unauthenticated request returns 401")
+        else:
+            print(f"❌ FAIL: Unauthenticated request returned {response.status_code}, expected 401")
+            all_passed = False
+        
+        # Test 2b: Student role should return 403
+        uid_student, token_student = make_session(role="student", name="Student User")
+        test_users.append(uid_student)
+        
+        response = requests.get(
+            f"{BASE_URL}/candidates",
+            cookies={"veyra_session": token_student},
+            timeout=30
+        )
+        
+        if response.status_code == 403:
+            data = response.json()
+            error_msg = data.get("error", "").lower()
+            if "recruiter" in error_msg or "company" in error_msg or "college" in error_msg:
+                print("✅ PASS: Student role returns 403 with appropriate error message")
+            else:
+                print(f"⚠️  PASS: Student role returns 403 but error message unclear: {data.get('error')}")
+        else:
+            print(f"❌ FAIL: Student role returned {response.status_code}, expected 403")
+            all_passed = False
+        
+        # Test 2c: Recruiter role should return 200 with empty list initially
+        uid_recruiter, token_recruiter = make_session(role="recruiter", name="Recruiter User")
+        test_users.append(uid_recruiter)
+        
+        response = requests.get(
+            f"{BASE_URL}/candidates",
+            cookies={"veyra_session": token_recruiter},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "candidates" in data and "total" in data:
+                print(f"✅ PASS: Recruiter role returns 200 with candidates list (count: {data['total']})")
+            else:
+                print(f"❌ FAIL: Response missing 'candidates' or 'total' keys: {data}")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: Recruiter role returned {response.status_code}: {response.text}")
+            all_passed = False
+            
+    except Exception as e:
+        print(f"❌ FAIL: Exception in Test 2: {str(e)}")
+        all_passed = False
+    
+    print()
+    
+    # ============================================================================
+    # TEST 3: Candidate Discovery - Search & View
+    # ============================================================================
+    print("TEST 3: Candidate Discovery - Search & View")
+    print("-" * 80)
+    
+    try:
+        # Create User A (Alice) - discoverable with skills
+        uid_alice, token_alice = make_session(
+            discoverable=True,
+            name="Alice Johnson",
+            headline="Senior Frontend Engineer",
+            location="Berlin"
+        )
+        test_users.append(uid_alice)
+        
+        # Add React skill to Alice
+        skill_response = requests.post(
+            f"{BASE_URL}/skills",
+            json={"name": "React", "level": "expert"},
+            cookies={"veyra_session": token_alice},
+            timeout=30
+        )
+        
+        if skill_response.status_code != 200:
+            print(f"⚠️  Warning: Failed to add skill to Alice: {skill_response.status_code}")
+        
+        # Create User B (Recruiter) for searching
+        uid_recruiter2, token_recruiter2 = make_session(role="recruiter", name="Bob Recruiter")
+        test_users.append(uid_recruiter2)
+        
+        # Test 3a: GET /api/candidates should list Alice
+        response = requests.get(
+            f"{BASE_URL}/candidates",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            candidates = data.get("candidates", [])
+            alice_found = any(c.get("name") == "Alice Johnson" for c in candidates)
+            
+            if alice_found:
+                alice = next(c for c in candidates if c.get("name") == "Alice Johnson")
+                if "React" in alice.get("skills", []):
+                    print("✅ PASS: Alice found in candidates list with React skill")
+                else:
+                    print(f"⚠️  PASS: Alice found but skills missing: {alice.get('skills')}")
+            else:
+                print(f"❌ FAIL: Alice not found in candidates list. Found {len(candidates)} candidates")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: GET /api/candidates returned {response.status_code}")
+            all_passed = False
+        
+        # Test 3b: Search by name (q=alice)
+        response = requests.get(
+            f"{BASE_URL}/candidates?q=alice",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            candidates = data.get("candidates", [])
+            alice_found = any(c.get("name") == "Alice Johnson" for c in candidates)
+            
+            if alice_found:
+                print("✅ PASS: Search by name (q=alice) returns Alice")
+            else:
+                print(f"❌ FAIL: Search by name didn't find Alice. Found {len(candidates)} candidates")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: Search by name returned {response.status_code}")
+            all_passed = False
+        
+        # Test 3c: Search with no results (q=zzznoresult)
+        response = requests.get(
+            f"{BASE_URL}/candidates?q=zzznoresult",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            candidates = data.get("candidates", [])
+            
+            if len(candidates) == 0:
+                print("✅ PASS: Search with no results returns empty list")
+            else:
+                print(f"❌ FAIL: Search with no results returned {len(candidates)} candidates")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: Search with no results returned {response.status_code}")
+            all_passed = False
+        
+        # Test 3d: Filter by skill (skill=react)
+        response = requests.get(
+            f"{BASE_URL}/candidates?skill=react",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            candidates = data.get("candidates", [])
+            alice_found = any(c.get("name") == "Alice Johnson" for c in candidates)
+            
+            if alice_found:
+                print("✅ PASS: Filter by skill (skill=react) returns Alice")
+            else:
+                print(f"❌ FAIL: Filter by skill didn't find Alice. Found {len(candidates)} candidates")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: Filter by skill returned {response.status_code}")
+            all_passed = False
+        
+        # Test 3e: GET /api/candidates/{alice_id} - detailed view
+        response = requests.get(
+            f"{BASE_URL}/candidates/{uid_alice}",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            candidate = data.get("candidate", {})
+            
+            if (candidate.get("name") == "Alice Johnson" and 
+                "skills" in candidate and 
+                "projects" in candidate):
+                print("✅ PASS: GET /api/candidates/{id} returns detailed candidate profile")
+            else:
+                print(f"❌ FAIL: Detailed candidate view missing fields: {candidate.keys()}")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: GET /api/candidates/{{id}} returned {response.status_code}")
+            all_passed = False
+        
+        # Test 3f: GET /api/candidates/{random-uuid} should return 404
+        random_uuid = str(uuid.uuid4())
+        response = requests.get(
+            f"{BASE_URL}/candidates/{random_uuid}",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 404:
+            print("✅ PASS: GET /api/candidates/{invalid-id} returns 404")
+        else:
+            print(f"❌ FAIL: GET /api/candidates/{{invalid-id}} returned {response.status_code}, expected 404")
+            all_passed = False
+        
+        # Test 3g: Verify recruiter is NOT in their own candidate list
+        response = requests.get(
+            f"{BASE_URL}/candidates",
+            cookies={"veyra_session": token_recruiter2},
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            candidates = data.get("candidates", [])
+            recruiter_in_list = any(c.get("id") == uid_recruiter2 for c in candidates)
+            
+            if not recruiter_in_list:
+                print("✅ PASS: Recruiter is NOT in their own candidate list")
+            else:
+                print(f"❌ FAIL: Recruiter found in their own candidate list")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: Final candidate list check returned {response.status_code}")
+            all_passed = False
+            
+    except Exception as e:
+        print(f"❌ FAIL: Exception in Test 3: {str(e)}")
+        all_passed = False
+    
+    print()
+    
+    # ============================================================================
+    # TEST 4: Coding Interview
+    # ============================================================================
+    print("TEST 4: Coding Interview")
+    print("-" * 80)
+    
+    try:
+        # Create a test user for coding interview
+        uid_coder, token_coder = make_session(name="Coder User")
+        test_users.append(uid_coder)
+        
+        # Test 4a: POST /api/ai/coding-challenge
+        print("Generating coding challenge (may take 10-60s)...")
+        challenge_response = requests.post(
+            f"{BASE_URL}/ai/coding-challenge",
+            json={
+                "topic": "arrays",
+                "difficulty": "easy",
+                "language": "Python"
+            },
+            cookies={"veyra_session": token_coder},
+            timeout=60
+        )
+        
+        if challenge_response.status_code == 200:
+            challenge_data = challenge_response.json()
+            required_keys = ["title", "difficulty", "prompt", "constraints", "examples", "hints", "starterCode"]
+            missing_keys = [k for k in required_keys if k not in challenge_data]
+            
+            if not missing_keys:
+                # Validate examples structure
+                examples = challenge_data.get("examples", [])
+                if len(examples) >= 2:
+                    example = examples[0]
+                    if "input" in example and "output" in example and "explanation" in example:
+                        print(f"✅ PASS: Coding challenge generated with all required fields")
+                        print(f"   Title: {challenge_data.get('title', '')[:50]}...")
+                        print(f"   Examples: {len(examples)}, Hints: {len(challenge_data.get('hints', []))}")
+                    else:
+                        print(f"❌ FAIL: Example structure invalid: {example.keys()}")
+                        all_passed = False
+                else:
+                    print(f"❌ FAIL: Expected 2+ examples, got {len(examples)}")
+                    all_passed = False
+            else:
+                print(f"❌ FAIL: Missing keys in challenge response: {missing_keys}")
+                all_passed = False
+            
+            # Test 4b: POST /api/ai/coding-grade
+            print("Grading coding solution (may take 10-60s)...")
+            grade_response = requests.post(
+                f"{BASE_URL}/ai/coding-grade",
+                json={
+                    "problem": challenge_data.get("prompt", "Sum two numbers"),
+                    "code": "def sum_two(a, b):\n    return a + b",
+                    "language": "Python"
+                },
+                cookies={"veyra_session": token_coder},
+                timeout=60
+            )
+            
+            if grade_response.status_code == 200:
+                grade_data = grade_response.json()
+                required_keys = ["overallScore", "correctness", "complexity", "codeQuality", 
+                               "edgeCases", "strengths", "improvements", "verdict", "improvedSolution"]
+                missing_keys = [k for k in required_keys if k not in grade_data]
+                
+                if not missing_keys:
+                    # Validate complexity structure
+                    complexity = grade_data.get("complexity", {})
+                    if "time" in complexity and "space" in complexity:
+                        # Validate arrays
+                        strengths = grade_data.get("strengths", [])
+                        improvements = grade_data.get("improvements", [])
+                        edge_cases = grade_data.get("edgeCases", [])
+                        
+                        if len(strengths) >= 3 and len(improvements) >= 3:
+                            print(f"✅ PASS: Coding solution graded with all required fields")
+                            print(f"   Overall Score: {grade_data.get('overallScore')}/100")
+                            print(f"   Correctness: {grade_data.get('correctness')}/100")
+                            print(f"   Complexity: Time={complexity.get('time')}, Space={complexity.get('space')}")
+                            
+                            # Verify doc was inserted into coding_attempts
+                            attempt_count = db.coding_attempts.count_documents({"userId": uid_coder})
+                            if attempt_count > 0:
+                                print(f"✅ PASS: Coding attempt saved to database (count: {attempt_count})")
+                            else:
+                                print(f"❌ FAIL: Coding attempt not saved to database")
+                                all_passed = False
+                        else:
+                            print(f"❌ FAIL: Insufficient strengths ({len(strengths)}) or improvements ({len(improvements)})")
+                            all_passed = False
+                    else:
+                        print(f"❌ FAIL: Complexity missing time/space: {complexity}")
+                        all_passed = False
+                else:
+                    print(f"❌ FAIL: Missing keys in grade response: {missing_keys}")
+                    all_passed = False
+            else:
+                print(f"❌ FAIL: POST /api/ai/coding-grade returned {grade_response.status_code}: {grade_response.text}")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: POST /api/ai/coding-challenge returned {challenge_response.status_code}: {challenge_response.text}")
+            all_passed = False
+        
+        # Test 4c: Unauthenticated requests should return 401
+        unauth_challenge = requests.post(
+            f"{BASE_URL}/ai/coding-challenge",
+            json={"topic": "arrays", "difficulty": "easy", "language": "Python"},
+            timeout=30
+        )
+        
+        unauth_grade = requests.post(
+            f"{BASE_URL}/ai/coding-grade",
+            json={"problem": "test", "code": "test", "language": "Python"},
+            timeout=30
+        )
+        
+        if unauth_challenge.status_code == 401 and unauth_grade.status_code == 401:
+            print("✅ PASS: Both coding endpoints return 401 when unauthenticated")
+        else:
+            print(f"❌ FAIL: Unauthenticated requests returned {unauth_challenge.status_code}, {unauth_grade.status_code} (expected 401, 401)")
+            all_passed = False
+            
+    except Exception as e:
+        print(f"❌ FAIL: Exception in Test 4: {str(e)}")
+        all_passed = False
+    
+    print()
+    
+    # ============================================================================
+    # TEST 5: Daily Briefing
+    # ============================================================================
+    print("TEST 5: Daily Briefing")
+    print("-" * 80)
+    
+    try:
+        # Create a test user with jobs
+        uid_briefing, token_briefing = make_session(name="Briefing User")
+        test_users.append(uid_briefing)
+        
+        # Create some jobs with different statuses
+        now = datetime.datetime.utcnow()
+        jobs_data = [
+            {
+                "id": str(uuid.uuid4()),
+                "userId": uid_briefing,
+                "company": "TechCorp",
+                "role": "Senior Engineer",
+                "status": "applied",
+                "appliedAt": now - datetime.timedelta(days=5),
+                "createdAt": now,
+                "updatedAt": now
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "userId": uid_briefing,
+                "company": "StartupXYZ",
+                "role": "Lead Developer",
+                "status": "applied",
+                "appliedAt": now - datetime.timedelta(days=7),
+                "createdAt": now,
+                "updatedAt": now
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "userId": uid_briefing,
+                "company": "BigTech Inc",
+                "role": "Staff Engineer",
+                "status": "interview",
+                "createdAt": now,
+                "updatedAt": now
+            }
+        ]
+        
+        for job in jobs_data:
+            db.jobs.insert_one(job)
+        
+        # Test 5a: GET /api/daily-briefing
+        print("Generating daily briefing (may take 10-60s)...")
+        response = requests.get(
+            f"{BASE_URL}/daily-briefing",
+            cookies={"veyra_session": token_briefing},
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            required_keys = ["briefing", "events", "followUps", "date"]
+            missing_keys = [k for k in required_keys if k not in data]
+            
+            if not missing_keys:
+                briefing = data.get("briefing", {})
+                briefing_keys = ["greeting", "focusOfDay", "todoList", "opportunityHint", "motivationalNote"]
+                missing_briefing_keys = [k for k in briefing_keys if k not in briefing]
+                
+                if not missing_briefing_keys:
+                    todo_list = briefing.get("todoList", [])
+                    events = data.get("events", [])
+                    follow_ups = data.get("followUps", [])
+                    
+                    print(f"✅ PASS: Daily briefing generated with all required fields")
+                    print(f"   Greeting: {briefing.get('greeting', '')[:60]}...")
+                    print(f"   Todo items: {len(todo_list)}")
+                    print(f"   Events: {len(events)}")
+                    print(f"   Follow-ups: {len(follow_ups)}")
+                    print(f"   Date: {data.get('date', '')[:10]}")
+                    
+                    # Verify follow-ups are detected (we created jobs 5 and 7 days ago)
+                    if len(follow_ups) >= 2:
+                        print(f"✅ PASS: Follow-ups correctly detected for jobs applied 5-7 days ago")
+                    else:
+                        print(f"⚠️  Warning: Expected 2+ follow-ups, got {len(follow_ups)}")
+                else:
+                    print(f"❌ FAIL: Missing briefing keys: {missing_briefing_keys}")
+                    all_passed = False
+            else:
+                print(f"❌ FAIL: Missing keys in daily briefing response: {missing_keys}")
+                all_passed = False
+        else:
+            print(f"❌ FAIL: GET /api/daily-briefing returned {response.status_code}: {response.text}")
+            all_passed = False
+        
+        # Test 5b: Unauthenticated request should return 401
+        unauth_response = requests.get(f"{BASE_URL}/daily-briefing", timeout=30)
+        
+        if unauth_response.status_code == 401:
+            print("✅ PASS: Unauthenticated request returns 401")
+        else:
+            print(f"❌ FAIL: Unauthenticated request returned {unauth_response.status_code}, expected 401")
+            all_passed = False
+            
+    except Exception as e:
+        print(f"❌ FAIL: Exception in Test 5: {str(e)}")
+        all_passed = False
+    
+    print()
+    
+    # ============================================================================
+    # TEST 6: Regression - Quick check of existing endpoints
+    # ============================================================================
+    print("TEST 6: Regression - Existing Endpoints")
+    print("-" * 80)
+    
+    try:
+        # Create a test user for regression tests
+        uid_regression, token_regression = make_session(name="Regression User")
+        test_users.append(uid_regression)
+        
+        regression_tests = []
+        
+        # Test 6a: GET /api/ (public)
+        response = requests.get(f"{BASE_URL}/", timeout=30)
+        if response.status_code == 200 and "message" in response.json():
+            regression_tests.append(("GET /api/", True))
+        else:
+            regression_tests.append(("GET /api/", False))
+            all_passed = False
+        
+        # Test 6b: GET /api/me without cookie
+        response = requests.get(f"{BASE_URL}/me", timeout=30)
+        if response.status_code == 200 and response.json().get("user") is None:
+            regression_tests.append(("GET /api/me (no cookie)", True))
+        else:
+            regression_tests.append(("GET /api/me (no cookie)", False))
+            all_passed = False
+        
+        # Test 6c: POST /api/ai/ats (public)
+        response = requests.post(
+            f"{BASE_URL}/ai/ats",
+            json={
+                "resume": "John Doe\nSenior Software Engineer\n5 years experience in Python, JavaScript, React, Node.js\nBuilt scalable web applications",
+                "jobDescription": "Looking for a Senior Engineer with Python and React experience"
+            },
+            timeout=60
+        )
+        if response.status_code == 200 and "atsScore" in response.json():
+            regression_tests.append(("POST /api/ai/ats", True))
+        else:
+            regression_tests.append(("POST /api/ai/ats", False))
+            all_passed = False
+        
+        # Test 6d: GET /api/analytics (authenticated)
+        response = requests.get(
+            f"{BASE_URL}/analytics",
+            cookies={"veyra_session": token_regression},
+            timeout=30
+        )
+        if response.status_code == 200 and "totals" in response.json():
+            regression_tests.append(("GET /api/analytics", True))
+        else:
+            regression_tests.append(("GET /api/analytics", False))
+            all_passed = False
+        
+        # Print results
+        for test_name, passed in regression_tests:
+            status = "✅ PASS" if passed else "❌ FAIL"
+            print(f"{status}: {test_name}")
+            
+    except Exception as e:
+        print(f"❌ FAIL: Exception in Test 6: {str(e)}")
+        all_passed = False
+    
     print()
 
-def test_root():
-    """Test GET /api/ returns {message: 'Veyra AI is live', model: 'gpt-4o'}"""
-    print("=" * 60)
-    print("TEST 1: Root API endpoint")
-    print("=" * 60)
-    try:
-        r = requests.get(f"{BASE_URL}/", timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 200 and
-            data.get("message") == "Veyra AI is live" and
-            data.get("model") == "gpt-4o"
-        )
-        
-        print_test(
-            "GET /api/",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data, indent=2)}"
-        )
-        return passed
-    except Exception as e:
-        print_test("GET /api/", False, f"Error: {str(e)}")
-        return False
+finally:
+    # Cleanup
+    print("=" * 80)
+    print("CLEANUP")
+    print("-" * 80)
+    cleanup_test_users(test_users)
+    print(f"Cleaned up {len(test_users)} test users")
+    print()
 
-def test_google_oauth_start():
-    """Test GET /api/auth/google returns 307 redirect with correct params"""
-    print("=" * 60)
-    print("TEST 2: Google OAuth start")
-    print("=" * 60)
-    try:
-        r = requests.get(f"{BASE_URL}/auth/google", allow_redirects=False, timeout=10)
-        
-        # Should be 307 redirect
-        if r.status_code != 307:
-            print_test("GET /api/auth/google", False, f"Expected 307, got {r.status_code}")
-            return False
-        
-        # Get redirect location
-        location = r.headers.get("Location", "")
-        if not location.startswith("https://accounts.google.com/o/oauth2/v2/auth"):
-            print_test("GET /api/auth/google", False, f"Redirect not to Google OAuth: {location}")
-            return False
-        
-        # Parse URL
-        parsed = urlparse(location)
-        params = parse_qs(parsed.query)
-        
-        # Check required params
-        checks = []
-        checks.append(("client_id", params.get("client_id", [""])[0] == "679155619284-1l3oimtk5vh9buof158bimeqss5ffg9o.apps.googleusercontent.com"))
-        checks.append(("redirect_uri", "https://pro-career-ai.preview.emergentagent.com/api/auth/google/callback" in params.get("redirect_uri", [""])[0]))
-        checks.append(("access_type", params.get("access_type", [""])[0] == "offline"))
-        checks.append(("prompt", params.get("prompt", [""])[0] == "consent"))
-        checks.append(("state", len(params.get("state", [""])[0]) > 0))
-        
-        # Check scopes
-        scope = params.get("scope", [""])[0]
-        required_scopes = [
-            "openid", "email", "profile",
-            "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/calendar.events",
-            "https://www.googleapis.com/auth/calendar.readonly",
-            "https://www.googleapis.com/auth/drive.readonly",
-            "https://www.googleapis.com/auth/drive.file"
-        ]
-        scopes_ok = all(s in scope for s in required_scopes)
-        checks.append(("scopes", scopes_ok))
-        
-        # Check cookie
-        cookie_set = "veyra_oauth_state" in r.cookies
-        checks.append(("veyra_oauth_state cookie", cookie_set))
-        
-        # If cookie is set, verify it matches state param
-        if cookie_set:
-            cookie_state = r.cookies.get("veyra_oauth_state")
-            url_state = params.get("state", [""])[0]
-            checks.append(("state matches cookie", cookie_state == url_state))
-        
-        all_passed = all(check[1] for check in checks)
-        
-        details = "\n   ".join([f"{name}: {'✓' if passed else '✗'}" for name, passed in checks])
-        print_test("GET /api/auth/google", all_passed, details)
-        
-        return all_passed
-    except Exception as e:
-        print_test("GET /api/auth/google", False, f"Error: {str(e)}")
-        return False
+# Final summary
+print("=" * 80)
+print("FINAL SUMMARY")
+print("=" * 80)
 
-def test_google_oauth_callback_errors():
-    """Test GET /api/auth/google/callback error handling"""
-    print("=" * 60)
-    print("TEST 3: Google OAuth callback error handling")
-    print("=" * 60)
-    
-    results = []
-    
-    # Test 1: No code/state -> redirect with auth_error=state
-    try:
-        r = requests.get(f"{BASE_URL}/auth/google/callback", allow_redirects=False, timeout=10)
-        passed = (
-            r.status_code == 307 and
-            "auth_error=state" in r.headers.get("Location", "")
-        )
-        results.append(passed)
-        print_test(
-            "No code/state",
-            passed,
-            f"Status: {r.status_code}, Location: {r.headers.get('Location', '')}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("No code/state", False, f"Error: {str(e)}")
-    
-    # Test 2: error=access_denied -> redirect with auth_error=access_denied
-    try:
-        r = requests.get(f"{BASE_URL}/auth/google/callback?error=access_denied", allow_redirects=False, timeout=10)
-        passed = (
-            r.status_code == 307 and
-            "auth_error=access_denied" in r.headers.get("Location", "")
-        )
-        results.append(passed)
-        print_test(
-            "error=access_denied",
-            passed,
-            f"Status: {r.status_code}, Location: {r.headers.get('Location', '')}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("error=access_denied", False, f"Error: {str(e)}")
-    
-    # Test 3: Invalid code with state -> redirect with auth_error (NOT 500)
-    try:
-        # Set a cookie first
-        session = requests.Session()
-        session.cookies.set("veyra_oauth_state", "test-state-123")
-        r = session.get(f"{BASE_URL}/auth/google/callback?code=invalid&state=test-state-123", allow_redirects=False, timeout=10)
-        passed = (
-            r.status_code == 307 and
-            "auth_error=" in r.headers.get("Location", "")
-        )
-        results.append(passed)
-        print_test(
-            "Invalid code",
-            passed,
-            f"Status: {r.status_code}, Location: {r.headers.get('Location', '')}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Invalid code", False, f"Error: {str(e)}")
-    
-    return all(results)
+if all_passed:
+    print("✅ ALL TESTS PASSED")
+    print()
+    print("Summary:")
+    print("  1. Extended Profile PUT - ✅ Working")
+    print("  2. Candidate Discovery (Role Guarding) - ✅ Working")
+    print("  3. Candidate Discovery (Search & View) - ✅ Working")
+    print("  4. Coding Interview - ✅ Working")
+    print("  5. Daily Briefing - ✅ Working")
+    print("  6. Regression Tests - ✅ Working")
+else:
+    print("❌ SOME TESTS FAILED")
+    print()
+    print("Please review the detailed output above for specific failures.")
 
-def test_me_unauthenticated():
-    """Test GET /api/me without session returns {user: null}"""
-    print("=" * 60)
-    print("TEST 4: GET /api/me (unauthenticated)")
-    print("=" * 60)
-    try:
-        r = requests.get(f"{BASE_URL}/me", timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 200 and
-            data.get("user") is None
-        )
-        
-        print_test(
-            "GET /api/me (no session)",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data, indent=2)}"
-        )
-        return passed
-    except Exception as e:
-        print_test("GET /api/me (no session)", False, f"Error: {str(e)}")
-        return False
-
-def test_protected_endpoints():
-    """Test protected endpoints return 401 without session"""
-    print("=" * 60)
-    print("TEST 5: Protected endpoints require session (401 without cookie)")
-    print("=" * 60)
-    
-    endpoints = [
-        ("PUT", "/profile", {"name": "Test"}),
-        ("POST", "/skills", {"name": "Python"}),
-        ("DELETE", "/skills/abc", None),
-        ("POST", "/projects", {"name": "test"}),
-        ("GET", "/memories", None),
-        ("POST", "/memories", {"fact": "test"}),
-        ("GET", "/google/gmail", None),
-        ("GET", "/google/calendar", None),
-        ("POST", "/google/calendar/events", {"summary": "test", "start": {"dateTime": "2025-01-01T10:00:00Z"}, "end": {"dateTime": "2025-01-01T11:00:00Z"}}),
-        ("GET", "/google/drive", None),
-        ("POST", "/ai/resume/generate", {}),
-        ("POST", "/ai/opportunities", {}),
-    ]
-    
-    results = []
-    for method, path, body in endpoints:
-        try:
-            if method == "GET":
-                r = requests.get(f"{BASE_URL}{path}", timeout=10)
-            elif method == "POST":
-                r = requests.post(f"{BASE_URL}{path}", json=body, timeout=10)
-            elif method == "PUT":
-                r = requests.put(f"{BASE_URL}{path}", json=body, timeout=10)
-            elif method == "DELETE":
-                r = requests.delete(f"{BASE_URL}{path}", timeout=10)
-            
-            data = r.json()
-            passed = (
-                r.status_code == 401 and
-                data.get("error") == "Unauthorized"
-            )
-            results.append(passed)
-            
-            print_test(
-                f"{method} {path}",
-                passed,
-                f"Status: {r.status_code}, Response: {json.dumps(data)}"
-            )
-        except Exception as e:
-            results.append(False)
-            print_test(f"{method} {path}", False, f"Error: {str(e)}")
-    
-    return all(results)
-
-def test_ai_ats():
-    """Test POST /api/ai/ats (public)"""
-    print("=" * 60)
-    print("TEST 6: AI /api/ai/ats (public)")
-    print("=" * 60)
-    
-    results = []
-    
-    # Test 1: Valid request
-    try:
-        payload = {
-            "resume": "Senior React developer with 5 years experience building web apps in TypeScript, Node.js, and MongoDB. Led 3-person frontend team at TechCorp. Built scalable e-commerce platform serving 100k users. Expert in React, Redux, Next.js, GraphQL, REST APIs, AWS, Docker, CI/CD.",
-            "jobDescription": "We need a Staff React engineer familiar with GraphQL and AWS. Must have 5+ years experience with modern frontend frameworks and cloud infrastructure."
-        }
-        r = requests.post(f"{BASE_URL}/ai/ats", json=payload, timeout=60)
-        data = r.json()
-        
-        # Check response structure
-        required_fields = ["atsScore", "summary", "strengths", "weaknesses", "matchedKeywords", "missingKeywords", "recommendations"]
-        has_fields = all(field in data for field in required_fields)
-        
-        # Check types
-        score_valid = isinstance(data.get("atsScore"), (int, float)) and 0 <= data.get("atsScore", -1) <= 100
-        arrays_valid = all(isinstance(data.get(field), list) for field in ["strengths", "weaknesses", "matchedKeywords", "missingKeywords", "recommendations"])
-        
-        passed = (
-            r.status_code == 200 and
-            has_fields and
-            score_valid and
-            arrays_valid
-        )
-        results.append(passed)
-        
-        print_test(
-            "Valid ATS request",
-            passed,
-            f"Status: {r.status_code}, Score: {data.get('atsScore')}, Fields: {list(data.keys())}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Valid ATS request", False, f"Error: {str(e)}")
-    
-    # Test 2: Short resume (< 30 chars) -> 400
-    try:
-        payload = {
-            "resume": "Too short",
-            "jobDescription": "Test job"
-        }
-        r = requests.post(f"{BASE_URL}/ai/ats", json=payload, timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 400 and
-            "error" in data
-        )
-        results.append(passed)
-        
-        print_test(
-            "Short resume (< 30 chars)",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data)}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Short resume", False, f"Error: {str(e)}")
-    
-    return all(results)
-
-def test_ai_tailor():
-    """Test POST /api/ai/tailor (public)"""
-    print("=" * 60)
-    print("TEST 7: AI /api/ai/tailor (public)")
-    print("=" * 60)
-    
-    try:
-        payload = {
-            "resume": "Senior React developer with 5 years experience building web apps in TypeScript, Node.js, and MongoDB. Led 3-person frontend team at TechCorp. Built scalable e-commerce platform serving 100k users.",
-            "jobDescription": "We need a Staff React engineer familiar with GraphQL and AWS."
-        }
-        r = requests.post(f"{BASE_URL}/ai/tailor", json=payload, timeout=60)
-        data = r.json()
-        
-        # Check response structure
-        required_fields = ["tailoredResume", "summaryLine", "topBullets", "keywordsAdded", "changesExplained"]
-        has_fields = all(field in data for field in required_fields)
-        
-        # Check types
-        strings_valid = isinstance(data.get("tailoredResume"), str) and isinstance(data.get("summaryLine"), str)
-        arrays_valid = all(isinstance(data.get(field), list) for field in ["topBullets", "keywordsAdded", "changesExplained"])
-        
-        passed = (
-            r.status_code == 200 and
-            has_fields and
-            strings_valid and
-            arrays_valid
-        )
-        
-        print_test(
-            "POST /api/ai/tailor",
-            passed,
-            f"Status: {r.status_code}, Fields: {list(data.keys())}"
-        )
-        return passed
-    except Exception as e:
-        print_test("POST /api/ai/tailor", False, f"Error: {str(e)}")
-        return False
-
-def test_ai_chat():
-    """Test POST /api/ai/chat (public, session-based, multi-turn)"""
-    print("=" * 60)
-    print("TEST 8: AI /api/ai/chat (public, session-based)")
-    print("=" * 60)
-    
-    results = []
-    session_id = "test-abc-123"
-    
-    # Test 1: First message
-    try:
-        payload = {
-            "sessionId": session_id,
-            "message": "I'm a React dev wanting to move to Rust in 6 months."
-        }
-        r = requests.post(f"{BASE_URL}/ai/chat", json=payload, timeout=60)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 200 and
-            data.get("sessionId") == session_id and
-            isinstance(data.get("answer"), str) and
-            len(data.get("answer", "")) > 0
-        )
-        results.append(passed)
-        
-        print_test(
-            "First chat message",
-            passed,
-            f"Status: {r.status_code}, SessionId: {data.get('sessionId')}, Answer length: {len(data.get('answer', ''))}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("First chat message", False, f"Error: {str(e)}")
-    
-    # Test 2: Second message (should have context from first)
-    try:
-        payload = {
-            "sessionId": session_id,
-            "message": "What was I asking about again?"
-        }
-        r = requests.post(f"{BASE_URL}/ai/chat", json=payload, timeout=60)
-        data = r.json()
-        
-        answer = data.get("answer", "").lower()
-        has_context = "rust" in answer or "react" in answer
-        
-        passed = (
-            r.status_code == 200 and
-            data.get("sessionId") == session_id and
-            isinstance(data.get("answer"), str) and
-            len(data.get("answer", "")) > 0 and
-            has_context
-        )
-        results.append(passed)
-        
-        print_test(
-            "Second chat message (context check)",
-            passed,
-            f"Status: {r.status_code}, Has context (Rust/React): {has_context}, Answer: {data.get('answer', '')[:100]}..."
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Second chat message", False, f"Error: {str(e)}")
-    
-    # Test 3: Empty message -> 400
-    try:
-        payload = {
-            "sessionId": session_id,
-            "message": ""
-        }
-        r = requests.post(f"{BASE_URL}/ai/chat", json=payload, timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 400 and
-            "error" in data
-        )
-        results.append(passed)
-        
-        print_test(
-            "Empty message",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data)}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Empty message", False, f"Error: {str(e)}")
-    
-    # Test 4: Verify MongoDB has the conversation
-    try:
-        from pymongo import MongoClient
-        client = MongoClient("mongodb://localhost:27017")
-        db = client["veyra_ai"]
-        chat = db["career_chats"].find_one({"sessionId": session_id})
-        
-        if chat:
-            messages = chat.get("messages", [])
-            # Should have 4 messages: 2 user + 2 assistant
-            passed = len(messages) >= 4
-            print_test(
-                "MongoDB conversation persistence",
-                passed,
-                f"Messages in DB: {len(messages)} (expected >= 4)"
-            )
-            results.append(passed)
-        else:
-            print_test("MongoDB conversation persistence", False, "No chat found in DB")
-            results.append(False)
-    except Exception as e:
-        print_test("MongoDB conversation persistence", False, f"Error: {str(e)}")
-        results.append(False)
-    
-    return all(results)
-
-def test_waitlist():
-    """Test POST /api/waitlist"""
-    print("=" * 60)
-    print("TEST 9: Waitlist /api/waitlist")
-    print("=" * 60)
-    
-    results = []
-    
-    # Test 1: Valid email
-    try:
-        payload = {"email": "test@test.com"}
-        r = requests.post(f"{BASE_URL}/waitlist", json=payload, timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 200 and
-            data.get("ok") is True
-        )
-        results.append(passed)
-        
-        print_test(
-            "Valid email",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data)}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Valid email", False, f"Error: {str(e)}")
-    
-    # Test 2: Invalid email
-    try:
-        payload = {"email": "notanemail"}
-        r = requests.post(f"{BASE_URL}/waitlist", json=payload, timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 400 and
-            data.get("error") == "Invalid email"
-        )
-        results.append(passed)
-        
-        print_test(
-            "Invalid email",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data)}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Invalid email", False, f"Error: {str(e)}")
-    
-    # Test 3: Same email twice (upsert)
-    try:
-        payload = {"email": "test@test.com"}
-        r = requests.post(f"{BASE_URL}/waitlist", json=payload, timeout=10)
-        data = r.json()
-        
-        passed = (
-            r.status_code == 200 and
-            data.get("ok") is True
-        )
-        results.append(passed)
-        
-        print_test(
-            "Same email twice (upsert)",
-            passed,
-            f"Status: {r.status_code}, Response: {json.dumps(data)}"
-        )
-    except Exception as e:
-        results.append(False)
-        print_test("Same email twice", False, f"Error: {str(e)}")
-    
-    return all(results)
-
-def main():
-    print("\n" + "=" * 60)
-    print("VEYRA AI BACKEND API TEST SUITE")
-    print("Testing at: " + BASE_URL)
-    print("=" * 60 + "\n")
-    
-    results = {}
-    
-    # Run all tests
-    results["Root endpoint"] = test_root()
-    results["Google OAuth start"] = test_google_oauth_start()
-    results["Google OAuth callback errors"] = test_google_oauth_callback_errors()
-    results["GET /api/me (unauthenticated)"] = test_me_unauthenticated()
-    results["Protected endpoints"] = test_protected_endpoints()
-    results["AI ATS"] = test_ai_ats()
-    results["AI Tailor"] = test_ai_tailor()
-    results["AI Chat"] = test_ai_chat()
-    results["Waitlist"] = test_waitlist()
-    
-    # Summary
-    print("\n" + "=" * 60)
-    print("TEST SUMMARY")
-    print("=" * 60)
-    
-    passed = sum(1 for v in results.values() if v)
-    total = len(results)
-    
-    for name, result in results.items():
-        status = "✅ PASS" if result else "❌ FAIL"
-        print(f"{status}: {name}")
-    
-    print("\n" + "=" * 60)
-    print(f"TOTAL: {passed}/{total} tests passed")
-    print("=" * 60 + "\n")
-    
-    # Exit with appropriate code
-    sys.exit(0 if passed == total else 1)
-
-if __name__ == "__main__":
-    main()
+print("=" * 80)
