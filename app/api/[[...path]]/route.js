@@ -1819,448 +1819,63 @@ if (route === '/google/drive' && method === 'GET') {
       }))
     }
 
-    // ============================================================
-// COMPANY JOBS + APPLICATIONS — MIGRATED FROM VERYA
-// ============================================================
-
-// Company: create job
-if (route === '/company/jobs' && method === 'POST') {
-  const s = await getSession()
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const body = await request.json()
-  const now = new Date()
-
-  if (!body.title || !body.department || !body.location || !body.description) {
-    return handleCORS(
-      NextResponse.json(
-        { error: 'Title, department, location and description are required' },
-        { status: 400 }
-      )
-    )
-  }
-
-  const job = {
-    id: uuidv4(),
-
-    companyId: s.user.id,
-    createdBy: s.user.id,
-
-    companyName:
-      s.user.companyName ||
-      s.user.name ||
-      'Company',
-
-    title: body.title,
-    department: body.department,
-    location: body.location,
-
-    employmentType: body.employmentType || 'full_time',
-    experience: body.experience || '',
-
-    salaryMin: Number(body.salaryMin || 0),
-    salaryMax: Number(body.salaryMax || 0),
-
-    description: body.description,
-    skills: Array.isArray(body.skills) ? body.skills : [],
-
-    eligibility: body.eligibility || '',
-    applicationDeadline: body.applicationDeadline
-      ? new Date(body.applicationDeadline)
-      : null,
-
-    status: body.status || 'draft',
-
-    createdAt: now,
-    updatedAt: now,
-  }
-
-  await db.collection('company_jobs').insertOne(job)
-
-  return handleCORS(
-    NextResponse.json(job, { status: 201 })
-  )
-}
-
-
-// Company: own jobs
-if (route === '/company/jobs' && method === 'GET') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const jobs = await db
-    .collection('company_jobs')
-    .find({ companyId: s.user.id })
-    .sort({ createdAt: -1 })
-    .toArray()
-
-  return handleCORS(
-    NextResponse.json(jobs)
-  )
-}
-
-
-// Company: update job
-if (route.startsWith('/company/jobs/') && method === 'PUT') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const id = route.replace('/company/jobs/', '')
-  const body = await request.json()
-
-  const allowed = [
-    'title',
-    'department',
-    'location',
-    'employmentType',
-    'experience',
-    'salaryMin',
-    'salaryMax',
-    'description',
-    'skills',
-    'eligibility',
-    'applicationDeadline',
-    'status',
-  ]
-
-  const update = {
-    updatedAt: new Date(),
-  }
-
-  for (const key of allowed) {
-    if (key in body) {
-      update[key] = body[key]
-    }
-  }
-
-  await db.collection('company_jobs').updateOne(
-    {
-      id,
-      companyId: s.user.id,
-    },
-    {
-      $set: update,
-    }
-  )
-
-  const job = await db.collection('company_jobs').findOne({
-    id,
-    companyId: s.user.id,
-  })
-
-  return handleCORS(
-    NextResponse.json(job)
-  )
-}
-
-
-// Company: delete job
-if (route.startsWith('/company/jobs/') && method === 'DELETE') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const id = route.replace('/company/jobs/', '')
-
-  await db.collection('company_jobs').deleteOne({
-    id,
-    companyId: s.user.id,
-  })
-
-  return handleCORS(
-    NextResponse.json({ ok: true })
-  )
-}
-
-
-// Public: published jobs
-if (route === '/public/jobs' && method === 'GET') {
-  const jobs = await db
-    .collection('company_jobs')
-    .find({
-      status: 'published',
-    })
-    .sort({ createdAt: -1 })
-    .toArray()
-
-  return handleCORS(
-    NextResponse.json(jobs)
-  )
-}
-
-
-// Public: single published job
-if (route.startsWith('/public/jobs/') && method === 'GET') {
-  const id = route.replace('/public/jobs/', '')
-
-  const job = await db.collection('company_jobs').findOne({
-    id,
-    status: 'published',
-  })
-
-  if (!job) {
-    return handleCORS(
-      NextResponse.json(
-        { error: 'Job not found' },
-        { status: 404 }
-      )
-    )
-  }
-
-  return handleCORS(
-    NextResponse.json(job)
-  )
-}
-
-
-// Student: apply to company job
-if (route === '/applications' && method === 'POST') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const body = await request.json()
-
-  if (!body.jobId) {
-    return handleCORS(
-      NextResponse.json(
-        { error: 'jobId is required' },
-        { status: 400 }
-      )
-    )
-  }
-
-  const job = await db.collection('company_jobs').findOne({
-    id: body.jobId,
-    status: 'published',
-  })
-
-  if (!job) {
-    return handleCORS(
-      NextResponse.json(
-        { error: 'Job not found or not published' },
-        { status: 404 }
-      )
-    )
-  }
-
-  const existing = await db.collection('applications').findOne({
-    studentId: s.user.id,
-    jobId: job.id,
-    isDeleted: false,
-  })
-
-  if (existing) {
-    return handleCORS(
-      NextResponse.json(
-        { error: 'You have already applied for this job.' },
-        { status: 409 }
-      )
-    )
-  }
-
-  const application = {
-    id: uuidv4(),
-
-    studentId: s.user.id,
-    studentName: s.user.name || '',
-    studentEmail: s.user.email || '',
-
-    companyId: job.companyId,
-    companyName: job.companyName,
-
-    jobId: job.id,
-    jobTitle: job.title,
-
-    resumeId: body.resumeId || null,
-    coverLetter: body.coverLetter || '',
-
-    status: 'Applied',
-    matchScore: Number(body.matchScore || 0),
-
-    notes: '',
-    appliedAt: new Date(),
-
-    isDeleted: false,
-
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }
-
-  await db.collection('applications').insertOne(application)
-
-  return handleCORS(
-    NextResponse.json(application, { status: 201 })
-  )
-}
-
-
-// Student: my applications
-if (route === '/applications/student' && method === 'GET') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const applications = await db
-    .collection('applications')
-    .find({
-      studentId: s.user.id,
-      isDeleted: false,
-    })
-    .sort({ createdAt: -1 })
-    .toArray()
-
-  return handleCORS(
-    NextResponse.json(applications)
-  )
-}
-
-
-// Company: applicants
-if (route === '/applications/company' && method === 'GET') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const applications = await db
-    .collection('applications')
-    .find({
-      companyId: s.user.id,
-      isDeleted: false,
-    })
-    .sort({ createdAt: -1 })
-    .toArray()
-
-  return handleCORS(
-    NextResponse.json(applications)
-  )
-}
-
-
-// Company: change application status
-if (route.startsWith('/applications/') && route.endsWith('/status') && method === 'PUT') {
-  const s = await getSession()
-
-  if (!s) {
-    return handleCORS(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    )
-  }
-
-  const parts = route.split('/')
-  const applicationId = parts[2]
-
-  const body = await request.json()
-
-  const allowedStatuses = [
-    'Applied',
-    'Screening',
-    'Shortlisted',
-    'Interview',
-    'Offer',
-    'Hired',
-    'Rejected',
-    'Withdrawn',
-  ]
-
-  if (!allowedStatuses.includes(body.status)) {
-    return handleCORS(
-      NextResponse.json(
-        { error: 'Invalid application status' },
-        { status: 400 }
-      )
-    )
-  }
-
-  const result = await db.collection('applications').findOneAndUpdate(
-    {
-      id: applicationId,
-      companyId: s.user.id,
-      isDeleted: false,
-    },
-    {
-      $set: {
-        status: body.status,
-        updatedAt: new Date(),
-      },
-    },
-    {
-      returnDocument: 'after',
-    }
-  )
-
-  return handleCORS(
-    NextResponse.json(result.value || result)
-  )
-}
-
-    // ============ PUBLIC COMPANY JOBS ============
-
-    if (route === '/public/jobs' && method === 'GET') {
-      const jobs = await db.collection('jobs')
-        .find({ status: 'published' })
-        .sort({ createdAt: -1 })
-        .toArray()
-
-      const companyIds = jobs
-        .map(j => j.companyId)
-        .filter(Boolean)
-
-      const companies = companyIds.length
-        ? await db.collection('companies')
-            .find({ _id: { $in: companyIds } })
-            .project({ companyName: 1 })
+        // ============ PUBLIC COMPANY JOBS ============
+
+        if (route === '/public/jobs' && method === 'GET') {
+          const jobs = await db
+            .collection('jobs')
+            .find({
+              status: { $in: ['published', 'Published'] },
+            })
+            .sort({ createdAt: -1 })
             .toArray()
-        : []
 
-      const companyMap = new Map(
-        companies.map(c => [String(c._id), c])
-      )
+          const companyIds = jobs
+            .map((job) => job.companyId)
+            .filter(Boolean)
 
-      return handleCORS(
-        NextResponse.json(
-          jobs.map(({ _id, ...job }) => ({
-            ...job,
-            id: String(_id),
-            companyName:
-              companyMap.get(String(job.companyId))?.companyName ||
-              job.company ||
-              'Company',
-          }))
-        )
-      )
-    }
+          const companies = companyIds.length
+            ? await db
+                .collection('companies')
+                .find({
+                  _id: { $in: companyIds },
+                })
+                .project({
+                  companyName: 1,
+                  logo: 1,
+                })
+                .toArray()
+            : []
 
+          const companyMap = new Map(
+            companies.map((company) => [
+              String(company._id),
+              company,
+            ])
+          )
+
+          return handleCORS(
+            NextResponse.json(
+              jobs.map(({ _id, ...job }) => {
+                const company = companyMap.get(
+                  String(job.companyId)
+                )
+
+                return {
+                  ...job,
+                  id: String(_id),
+                  companyName:
+                    company?.companyName ||
+                    job.companyName ||
+                    job.company ||
+                    'Company',
+                  companyLogo:
+                    company?.logo || '',
+                }
+              })
+            )
+          )
+        }
     // ============ PUBLIC JOB DETAIL ============
 
     if (route.startsWith('/public/jobs/') && method === 'GET') {
@@ -2292,25 +1907,35 @@ if (route.startsWith('/applications/') && route.endsWith('/status') && method ==
 
       let company = null
 
-      if (job.companyId) {
-        company = await db.collection('companies').findOne(
-          { _id: job.companyId },
-          { projection: { companyName: 1 } }
-        )
-      }
+if (job.companyId) {
+  company = await db.collection('companies').findOne(
+    {
+      _id: job.companyId,
+    },
+    {
+      projection: {
+        companyName: 1,
+        logo: 1,
+      },
+    }
+  )
+}
 
-      const { _id, ...rest } = job
+const { _id, ...rest } = job
 
-      return handleCORS(
-        NextResponse.json({
-          ...rest,
-          id: String(_id),
-          companyName:
-            company?.companyName ||
-            job.company ||
-            'Company',
-        })
-      )
+return handleCORS(
+  NextResponse.json({
+    ...rest,
+    id: String(_id),
+    companyName:
+      company?.companyName ||
+      job.companyName ||
+      job.company ||
+      'Company',
+    companyLogo:
+      company?.logo || '',
+  })
+)
     }
 
     // ============ STUDENT: APPLY TO COMPANY JOB ============
@@ -2742,6 +2367,462 @@ if (route.startsWith('/applications/') && route.endsWith('/status') && method ==
       return handleCORS(NextResponse.json({ notifications }))
     }
 
+    // ============ COLLEGE PORTAL — PROFILE + STUDENTS ============
+
+    if (route === '/college/profile' && method === 'GET') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const college = await db.collection('colleges').findOne({
+        _id: new (await import('mongodb')).ObjectId(s.user.collegeId),
+      })
+
+      if (!college) {
+        return handleCORS(
+          NextResponse.json({ error: 'College not found' }, { status: 404 })
+        )
+      }
+
+      const { password, ...safeCollege } = college
+
+      return handleCORS(
+        NextResponse.json({
+          ...safeCollege,
+          id: String(college._id),
+        })
+      )
+    }
+
+    if (route === '/college/profile' && method === 'PUT') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const body = await request.json()
+
+      const allowed = [
+        'collegeName',
+        'phone',
+        'website',
+        'address',
+        'logo',
+      ]
+
+      const update = {
+        updatedAt: new Date(),
+      }
+
+      for (const key of allowed) {
+        if (key in body) {
+          update[key] = body[key]
+        }
+      }
+
+      const collegeId = new (await import('mongodb')).ObjectId(
+        s.user.collegeId
+      )
+
+      await db.collection('colleges').updateOne(
+        { _id: collegeId },
+        { $set: update }
+      )
+
+      const college = await db.collection('colleges').findOne({
+        _id: collegeId,
+      })
+
+      if (!college) {
+        return handleCORS(
+          NextResponse.json({ error: 'College not found' }, { status: 404 })
+        )
+      }
+
+      const { password, ...safeCollege } = college
+
+      return handleCORS(
+        NextResponse.json({
+          ...safeCollege,
+          id: String(college._id),
+        })
+      )
+    }
+
+    if (route === '/college/students' && method === 'GET') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const college = await db.collection('colleges').findOne({
+        _id: new (await import('mongodb')).ObjectId(s.user.collegeId),
+      })
+
+      if (!college) {
+        return handleCORS(
+          NextResponse.json({ error: 'College not found' }, { status: 404 })
+        )
+      }
+
+      const students = await db.collection('studentprofiles')
+        .find({
+          college: college.collegeName,
+        })
+        .sort({ updatedAt: -1 })
+        .toArray()
+
+      return handleCORS(
+        NextResponse.json({
+          students,
+          total: students.length,
+        })
+      )
+    }
+
+    if (route.startsWith('/college/students/') && method === 'GET') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const studentId = route.replace('/college/students/', '')
+
+      const student = await db.collection('studentprofiles').findOne({
+        userId: studentId,
+      })
+
+      if (!student) {
+        return handleCORS(
+          NextResponse.json({ error: 'Student not found' }, { status: 404 })
+        )
+      }
+
+      return handleCORS(
+        NextResponse.json({ student })
+      )
+    }
+
+    // ============ COLLEGE PORTAL — PLACEMENT DRIVES ============
+
+    // College: create placement drive
+    if (route === '/college/drives' && method === 'POST') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const body = await request.json()
+      const now = new Date()
+
+      if (!body.companyName || !body.jobTitle) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Company name and job title are required' },
+            { status: 400 }
+          )
+        )
+      }
+
+      const drive = {
+        id: uuidv4(),
+
+        collegeId: s.user.collegeId,
+        collegeName: s.user.orgName || '',
+
+        companyId: body.companyId || null,
+        companyName: body.companyName,
+
+        jobId: body.jobId || null,
+        jobTitle: body.jobTitle,
+
+        description: body.description || '',
+        location: body.location || '',
+        employmentType: body.employmentType || 'full_time',
+
+        salaryMin: Number(body.salaryMin || 0),
+        salaryMax: Number(body.salaryMax || 0),
+
+        eligibility: body.eligibility || '',
+        skills: Array.isArray(body.skills) ? body.skills : [],
+
+        driveDate: body.driveDate
+          ? new Date(body.driveDate)
+          : null,
+
+        applicationDeadline: body.applicationDeadline
+          ? new Date(body.applicationDeadline)
+          : null,
+
+        status: body.status || 'open',
+
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      await db.collection('placementdrives').insertOne(drive)
+
+      return handleCORS(
+        NextResponse.json(drive, { status: 201 })
+      )
+    }
+
+
+    // College: list placement drives
+    if (route === '/college/drives' && method === 'GET') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const drives = await db.collection('placementdrives')
+        .find({
+          collegeId: s.user.collegeId,
+        })
+        .sort({ createdAt: -1 })
+        .toArray()
+
+      return handleCORS(
+        NextResponse.json({
+          drives,
+          total: drives.length,
+        })
+      )
+    }
+
+
+    // College: single placement drive
+    if (route.startsWith('/college/drives/') && method === 'GET') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const id = route.replace('/college/drives/', '')
+
+      const drive = await db.collection('placementdrives').findOne({
+        id,
+        collegeId: s.user.collegeId,
+      })
+
+      if (!drive) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Placement drive not found' },
+            { status: 404 }
+          )
+        )
+      }
+
+      return handleCORS(
+        NextResponse.json(drive)
+      )
+    }
+
+
+    // College: update placement drive
+    if (route.startsWith('/college/drives/') && method === 'PUT') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const id = route.replace('/college/drives/', '')
+      const body = await request.json()
+
+      const allowed = [
+        'companyId',
+        'companyName',
+        'jobId',
+        'jobTitle',
+        'description',
+        'location',
+        'employmentType',
+        'salaryMin',
+        'salaryMax',
+        'eligibility',
+        'skills',
+        'driveDate',
+        'applicationDeadline',
+        'status',
+      ]
+
+      const update = {
+        updatedAt: new Date(),
+      }
+
+      for (const key of allowed) {
+        if (key in body) {
+          update[key] = body[key]
+        }
+      }
+
+      await db.collection('placementdrives').updateOne(
+        {
+          id,
+          collegeId: s.user.collegeId,
+        },
+        {
+          $set: update,
+        }
+      )
+
+      const drive = await db.collection('placementdrives').findOne({
+        id,
+        collegeId: s.user.collegeId,
+      })
+
+      if (!drive) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Placement drive not found' },
+            { status: 404 }
+          )
+        )
+      }
+
+      return handleCORS(
+        NextResponse.json(drive)
+      )
+    }
+
+
+    // College: delete placement drive
+    if (route.startsWith('/college/drives/') && method === 'DELETE') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      if (s.user.role !== 'college_admin') {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'College admin access required' },
+            { status: 403 }
+          )
+        )
+      }
+
+      const id = route.replace('/college/drives/', '')
+
+      const result = await db.collection('placementdrives').deleteOne({
+        id,
+        collegeId: s.user.collegeId,
+      })
+
+      if (!result.deletedCount) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Placement drive not found' },
+            { status: 404 }
+          )
+        )
+      }
+
+      return handleCORS(
+        NextResponse.json({ ok: true })
+      )
+    }
     // ============ CANDIDATE DISCOVERY (Recruiter / College portals) ============
     if (route === '/candidates' && method === 'GET') {
       const s = await getSession()

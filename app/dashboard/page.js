@@ -41,6 +41,7 @@ const NAV = [
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'drive', label: 'Drive', icon: Cloud },
   { key: 'notifications', label: 'Notifications', icon: Bell },
+  { key: 'college', label: 'College Portal', icon: GraduationCap, requireRole: ['college_admin'] },
   { key: 'recruit', label: 'Recruit', icon: Users, requireRole: ['recruiter', 'company_admin', 'college_admin'] },
   { key: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -200,6 +201,7 @@ function Dashboard() {
           {active === 'interview' && <InterviewTab />}
           {active === 'coding' && <CodingTab />}
           {active === 'recruit' && <RecruitTab />}
+          {active === 'college' && <CollegePortalTab />}
           {active === 'cover' && <CoverLetterTab />}
           {active === 'careerdna' && <CareerDNATab />}
           {active === 'roadmap' && <RoadmapTab me={me} />}
@@ -4614,6 +4616,461 @@ function RecruitTab() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ---------- COLLEGE PORTAL ----------
+function CollegePortalTab() {
+  const [tab, setTab] = useState('overview')
+  const [profile, setProfile] = useState(null)
+  const [students, setStudents] = useState([])
+  const [drives, setDrives] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function loadCollegeData(refresh = false) {
+    if (refresh) setRefreshing(true)
+    else setLoading(true)
+
+    try {
+      const [profileRes, studentsRes, drivesRes] = await Promise.all([
+        fetch('/api/college/profile'),
+        fetch('/api/college/students'),
+        fetch('/api/college/drives'),
+      ])
+
+      const profileData = await profileRes.json()
+      const studentsData = await studentsRes.json()
+      const drivesData = await drivesRes.json()
+
+      if (!profileRes.ok) throw new Error(profileData.error || 'Failed to load college profile')
+      if (!studentsRes.ok) throw new Error(studentsData.error || 'Failed to load students')
+      if (!drivesRes.ok) throw new Error(drivesData.error || 'Failed to load placement drives')
+
+      setProfile(profileData)
+      setStudents(studentsData.students || [])
+      setDrives(drivesData.drives || [])
+    } catch (error) {
+      toast.error(error.message || 'Failed to load college portal')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    loadCollegeData()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <Loader2 className="w-7 h-7 animate-spin text-emerald-400" />
+      </div>
+    )
+  }
+
+  const approved = students.filter(
+    s => s.resumeStatus === 'Approved' || s.resumeApproved === true
+  ).length
+
+  const searching = students.filter(
+    s => (s.placementStatus || '').toLowerCase() === 'searching'
+  ).length
+
+  return (
+    <div className="space-y-6">
+
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <GraduationCap className="w-7 h-7 text-emerald-400" />
+            <h1 className="text-3xl font-bold">College Portal</h1>
+          </div>
+          <p className="text-white/50 mt-1 text-sm">
+            Manage students and campus placement.
+          </p>
+        </div>
+
+        <Button
+          onClick={() => loadCollegeData(true)}
+          disabled={refreshing}
+          variant="outline"
+          className="border-white/10 bg-white/5"
+        >
+          <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* College header */}
+      {profile && (
+        <div className="glass-strong rounded-2xl p-5 border border-emerald-500/10">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+              <GraduationCap className="w-7 h-7 text-emerald-400" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="text-lg font-semibold">
+                {profile.collegeName}
+              </div>
+              <div className="text-sm text-white/50">
+                {profile.email}
+              </div>
+              {profile.address && (
+                <div className="text-xs text-white/40 mt-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />
+                  {profile.address}
+                </div>
+              )}
+            </div>
+
+            <div className="ml-auto">
+              {profile.isVerified ? (
+                <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  <Check className="w-3 h-3 mr-1" />
+                  Verified
+                </Badge>
+              ) : (
+                <Badge className="bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                  Verification Pending
+                </Badge>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-2 overflow-x-auto">
+        {[
+          ['overview', 'Overview', Layers],
+          ['students', 'Students', Users],
+          ['drives', 'Placement Drives', Briefcase],
+          ['profile', 'College Profile', GraduationCap],
+        ].map(([key, label, Icon]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm whitespace-nowrap ${
+              tab === key
+                ? 'bg-white text-black'
+                : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview */}
+      {tab === 'overview' && (
+        <div className="space-y-5">
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="glass rounded-2xl p-5">
+              <Users className="w-5 h-5 text-blue-400" />
+              <div className="text-3xl font-bold mt-3">{students.length}</div>
+              <div className="text-xs text-white/50">Total Students</div>
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <Check className="w-5 h-5 text-emerald-400" />
+              <div className="text-3xl font-bold mt-3">{approved}</div>
+              <div className="text-xs text-white/50">Resume Approved</div>
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <Target className="w-5 h-5 text-amber-400" />
+              <div className="text-3xl font-bold mt-3">{searching}</div>
+              <div className="text-xs text-white/50">Seeking Placement</div>
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <Briefcase className="w-5 h-5 text-violet-400" />
+              <div className="text-3xl font-bold mt-3">
+                {drives.filter(d => d.status === 'published').length}
+              </div>
+              <div className="text-xs text-white/50">Active Drives</div>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-4">
+
+            <div className="glass rounded-2xl p-5">
+              <div className="font-semibold">Latest Placement Drives</div>
+
+              {drives.length === 0 ? (
+                <div className="text-sm text-white/40 py-8 text-center">
+                  No placement drives yet.
+                </div>
+              ) : (
+                <div className="space-y-2 mt-4">
+                  {drives.slice(0, 3).map(drive => (
+                    <div
+                      key={drive.id || drive._id}
+                      className="glass rounded-xl p-3"
+                    >
+                      <div className="flex justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-sm">
+                            {drive.jobTitle}
+                          </div>
+                          <div className="text-xs text-white/50 mt-1">
+                            {drive.companyName}
+                          </div>
+                        </div>
+
+                        <Badge className="bg-emerald-500/10 text-emerald-300 border-emerald-500/20">
+                          {drive.status}
+                        </Badge>
+                      </div>
+
+                      <div className="text-[11px] text-white/40 mt-2">
+                        {drive.location || 'Location not specified'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <div className="font-semibold">Student Readiness</div>
+
+              <div className="mt-5 space-y-5">
+                <div>
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-white/50">Resume Approved</span>
+                    <span>
+                      {students.length
+                        ? Math.round((approved / students.length) * 100)
+                        : 0}%
+                    </span>
+                  </div>
+
+                  <Progress
+                    value={
+                      students.length
+                        ? (approved / students.length) * 100
+                        : 0
+                    }
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-white/50">Seeking Placement</span>
+                    <span>
+                      {students.length
+                        ? Math.round((searching / students.length) * 100)
+                        : 0}%
+                    </span>
+                  </div>
+
+                  <Progress
+                    value={
+                      students.length
+                        ? (searching / students.length) * 100
+                        : 0
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Students */}
+      {tab === 'students' && (
+        <div className="glass rounded-2xl overflow-hidden">
+          <div className="p-5 border-b border-white/5">
+            <div className="text-lg font-semibold">Students</div>
+            <div className="text-xs text-white/40 mt-1">
+              {students.length} students linked to this college
+            </div>
+          </div>
+
+          <div className="divide-y divide-white/5">
+            {students.map((student, index) => (
+              <div
+                key={student.userId || student._id || index}
+                className="p-4"
+              >
+                <div className="flex flex-col md:flex-row md:items-center gap-4">
+
+                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+                    <User className="w-5 h-5 text-white/50" />
+                  </div>
+
+                  <div className="flex-1">
+                    <div className="font-medium">
+                      {student.fullName || 'Unnamed Student'}
+                    </div>
+
+                    <div className="text-xs text-white/40 mt-1">
+                      {student.department ||
+                        student.branch ||
+                        student.degree ||
+                        'Profile details not added'}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {student.cgpa > 0 && (
+                      <Badge className="bg-white/5 border-white/10 text-white/60">
+                        CGPA {student.cgpa}
+                      </Badge>
+                    )}
+
+                    <Badge className={
+                      student.resumeStatus === 'Approved' ||
+                      student.resumeApproved
+                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                        : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                    }>
+                      {student.resumeStatus === 'Approved' ||
+                      student.resumeApproved
+                        ? 'Resume Approved'
+                        : 'Resume Pending'}
+                    </Badge>
+
+                    <Badge className="bg-blue-500/10 text-blue-300 border-blue-500/20">
+                      {student.placementStatus || 'Searching'}
+                    </Badge>
+                  </div>
+
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Placement Drives */}
+      {tab === 'drives' && (
+        <div className="space-y-4">
+          {drives.length === 0 ? (
+            <div className="glass rounded-2xl p-10 text-center">
+              <Briefcase className="w-10 h-10 text-white/30 mx-auto mb-3" />
+              <div className="font-medium">No placement drives</div>
+            </div>
+          ) : (
+            drives.map(drive => (
+              <div
+                key={drive.id || drive._id}
+                className="glass rounded-2xl p-5"
+              >
+                <div className="flex flex-col md:flex-row md:justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-lg font-semibold">
+                        {drive.jobTitle}
+                      </div>
+
+                      <Badge className="bg-emerald-500/10 text-emerald-300 border-emerald-500/20">
+                        {drive.status}
+                      </Badge>
+                    </div>
+
+                    <div className="text-sm text-white/60 mt-1">
+                      {drive.companyName}
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-white/40">
+                    {drive.driveDate && (
+                      <div>
+                        Drive: {new Date(drive.driveDate).toLocaleDateString()}
+                      </div>
+                    )}
+
+                    {drive.applicationDeadline && (
+                      <div className="mt-1">
+                        Deadline: {new Date(
+                          drive.applicationDeadline
+                        ).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {drive.description && (
+                  <p className="text-sm text-white/65 mt-4">
+                    {drive.description}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {drive.location && (
+                    <Badge className="bg-white/5 border-white/10 text-white/60">
+                      <MapPin className="w-3 h-3 mr-1" />
+                      {drive.location}
+                    </Badge>
+                  )}
+
+                  {drive.eligibility?.minCGPA != null && (
+                    <Badge className="bg-white/5 border-white/10 text-white/60">
+                      Min CGPA {drive.eligibility.minCGPA}
+                    </Badge>
+                  )}
+
+                  {drive.eligibility?.maxBacklogs != null && (
+                    <Badge className="bg-white/5 border-white/10 text-white/60">
+                      Max Backlogs {drive.eligibility.maxBacklogs}
+                    </Badge>
+                  )}
+
+                  {drive.eligibility?.branches?.length > 0 && (
+                    <Badge className="bg-white/5 border-white/10 text-white/60">
+                      {drive.eligibility.branches.join(', ')}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* College Profile */}
+      {tab === 'profile' && (
+        <div className="glass rounded-2xl p-6">
+          <div className="text-lg font-semibold mb-5">
+            College Profile
+          </div>
+
+          {profile && (
+            <div className="grid md:grid-cols-2 gap-4">
+              {[
+                ['College Name', profile.collegeName],
+                ['Email', profile.email],
+                ['Phone', profile.phone],
+                ['Website', profile.website],
+                ['Address', profile.address],
+                ['Verification', profile.isVerified ? 'Verified' : 'Pending'],
+              ].map(([label, value]) => (
+                <div key={label} className="glass rounded-xl p-4">
+                  <div className="text-[11px] uppercase text-white/40">
+                    {label}
+                  </div>
+                  <div className="text-sm mt-1 break-words">
+                    {value || '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   )
 }
