@@ -60,13 +60,50 @@ function Nav() {
     <header className="fixed top-0 inset-x-0 z-50">
       <div className="glass-strong border-b border-white/5">
         <div className="container flex items-center justify-between h-16">
-          <a href="#" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 via-blue-500 to-violet-500 flex items-center justify-center glow-emerald">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-lg font-bold tracking-tight">Veyra</span>
-            <Badge variant="outline" className="ml-2 hidden md:inline-flex text-[10px] border-white/10 text-white/60">AI</Badge>
-          </a>
+        <a
+  href="#"
+  className="flex items-center gap-3 group select-none"
+>
+  {/* Veyra AI logo mark */}
+  <div
+    className="
+      relative flex items-center justify-center
+      w-10 h-10 rounded-xl
+      bg-gradient-to-br from-emerald-400 via-blue-500 to-violet-600
+      shadow-[0_0_28px_rgba(59,130,246,0.28)]
+      transition-all duration-300
+      group-hover:scale-105
+      group-hover:shadow-[0_0_38px_rgba(99,102,241,0.45)]
+    "
+  >
+    <svg
+      viewBox="0 0 48 48"
+      className="relative w-7 h-7"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* AI sparkle */}
+      <path
+        d="M34 7L35.7 11.3L40 13L35.7 14.7L34 19L32.3 14.7L28 13L32.3 11.3L34 7Z"
+        fill="white"
+      />
+
+      {/* Veyra V */}
+      <path
+        d="M8 17H16L24 34L32 17H40L28.5 39C27.7 40.6 26.1 41.5 24 41.5C21.9 41.5 20.3 40.6 19.5 39L8 17Z"
+        fill="white"
+      />
+    </svg>
+  </div>
+
+  {/* Veyra AI wordmark */}
+  <span className="text-[21px] font-bold tracking-[-0.03em] text-white leading-none">
+    Veyra
+    <span className="ml-1 bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-500 bg-clip-text text-transparent">
+      AI
+    </span>
+  </span>
+</a>
           <nav className="hidden md:flex items-center gap-8 text-sm text-white/70">
             <a href="#features" className="hover:text-white transition">Features</a>
             <a href="#workspace" className="hover:text-white transition">Products</a>

@@ -12,11 +12,26 @@ let _client
 let _db
 
 async function connectToMongo() {
-  if (!_client) {
-    _client = new MongoClient(process.env.MONGO_URL)
-    await _client.connect()
-    _db = _client.db(process.env.DB_NAME || 'veyra_ai')
+  if (_db) {
+    return _db
   }
+
+  if (!_client) {
+    if (!process.env.MONGO_URL) {
+      throw new Error('MONGO_URL is not configured')
+    }
+
+    _client = new MongoClient(process.env.MONGO_URL)
+  }
+
+  await _client.connect()
+
+  _db = _client.db(process.env.DB_NAME || 'veyra_ai')
+
+  if (!_db) {
+    throw new Error('Failed to initialize MongoDB database')
+  }
+
   return _db
 }
 
@@ -52,7 +67,7 @@ async function setSessionCookie(token) {
   const c = await cookies()
   c.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 30 * 24 * 60 * 60,
     path: '/',
@@ -83,12 +98,30 @@ async function saveUserGoogleTokens(userId, tokens) {
 
 async function getAuthedGoogle(userId) {
   const tokens = await getUserGoogleTokens(userId)
+
   if (!tokens) return null
+
   const client = authedClient(tokens)
-  // Auto-refresh handling
+
+  // Persist refreshed Google tokens back to MongoDB.
   client.on('tokens', async (newTokens) => {
-    await saveUserGoogleTokens(userId, newTokens)
+    try {
+      await saveUserGoogleTokens(userId, newTokens)
+    } catch (error) {
+      console.error('Failed to save refreshed Google tokens:', error)
+    }
   })
+
+  // IMPORTANT:
+  // Force Google OAuth to obtain a valid access token before
+  // any Gmail / Calendar / Drive request is made.
+  try {
+    await client.getAccessToken()
+  } catch (error) {
+    console.error('Google access-token refresh failed:', error)
+    return null
+  }
+
   return client
 }
 
@@ -169,10 +202,19 @@ async function handleRoute(request, { params }) {
     }
 
     // ============ AUTH: GOOGLE ============
+
     if (route === '/auth/google' && method === 'GET') {
       const state = uuidv4()
-      const c = await cookies()
-      c.set('veyra_oauth_state', state, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 600, path: '/' })
+
+      console.log("GOOGLE_REDIRECT_URI =", process.env.GOOGLE_REDIRECT_URI)
+
+      await db.collection('oauth_states').insertOne({
+        state,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      })
+
+      console.log("GOOGLE OAUTH STATE SAVED:", state)
       const url = oauth2Client().generateAuthUrl({
         access_type: 'offline',
         prompt: 'consent',
@@ -180,31 +222,77 @@ async function handleRoute(request, { params }) {
         scope: GOOGLE_SCOPES,
         state,
       })
-      return NextResponse.redirect(url)
+
+      console.log(url)
+
+      const response = NextResponse.redirect(url)
+
+
+      return handleCORS(response)
     }
+
 
     if (route === '/auth/google/callback' && method === 'GET') {
       const url = new URL(request.url)
+
       const code = url.searchParams.get('code')
       const state = url.searchParams.get('state')
       const errParam = url.searchParams.get('error')
-      const c = await cookies()
-      const stored = c.get('veyra_oauth_state')?.value
-      c.delete('veyra_oauth_state')
-      if (errParam) {
-        return NextResponse.redirect(new URL('/?auth_error=' + encodeURIComponent(errParam), request.url))
-      }
-      if (!code || !state || state !== stored) {
-        return NextResponse.redirect(new URL('/?auth_error=state', request.url))
-      }
+
+      const oauthState = state
+  ? await db.collection('oauth_states').findOne({
+      state,
+      expiresAt: { $gt: new Date() },
+    })
+  : null
+
+console.log("STATE FROM GOOGLE:", state)
+console.log("STATE FROM DATABASE:", oauthState?.state)
+
+if (errParam) {
+  return NextResponse.redirect(
+    new URL(
+      '/?auth_error=' + encodeURIComponent(errParam),
+      request.url
+    )
+  )
+}
+
+if (!code || !state || !oauthState) {
+  console.log("GOOGLE OAUTH STATE VALIDATION FAILED")
+  return NextResponse.redirect(
+    new URL('/?auth_error=state', request.url)
+  )
+}
+
+// State is valid — consume it so it cannot be reused.
+await db.collection('oauth_states').deleteOne({
+  _id: oauthState._id,
+})
       let tokens, me
       try {
         const client = oauth2Client()
         const tk = await client.getToken(code)
-        tokens = tk.tokens
-        client.setCredentials(tokens)
-        const info = await oauth2Api(client).userinfo.get()
-        me = info.data
+tokens = tk.tokens
+
+
+client.setCredentials(tokens)
+
+const ticket = await client.verifyIdToken({
+  idToken: tokens.id_token,
+  audience: process.env.GOOGLE_CLIENT_ID,
+})
+
+const payload = ticket.getPayload()
+
+me = {
+  id: payload.sub,
+  email: payload.email,
+  name: payload.name,
+  picture: payload.picture,
+  verified_email: payload.email_verified,
+  locale: payload.locale,
+}
       } catch (e) {
         console.error('OAuth token exchange failed:', e?.message)
         return NextResponse.redirect(new URL('/?auth_error=' + encodeURIComponent(e?.message || 'token_exchange'), request.url))
@@ -244,13 +332,37 @@ async function handleRoute(request, { params }) {
       if (!finalTokens.refresh_token && prior?.refresh_token) finalTokens.refresh_token = prior.refresh_token
       await saveUserGoogleTokens(userId, finalTokens)
 
-      // Create session
-      const sessionToken = uuidv4() + '.' + uuidv4()
-      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      await db.collection('sessions').insertOne({ token: sessionToken, userId, createdAt: now, expiresAt })
-      await setSessionCookie(sessionToken)
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
+
+          // Create session
+          const sessionToken = uuidv4() + '.' + uuidv4()
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+
+          await db.collection('sessions').insertOne({
+            token: sessionToken,
+            userId,
+            createdAt: now,
+            expiresAt,
+          })
+
+          // IMPORTANT:
+          // Set the session cookie on the SAME response that redirects
+          // the browser to the dashboard.
+          const response = NextResponse.redirect(
+            new URL('/dashboard', request.url)
+          )
+
+          response.cookies.set(SESSION_COOKIE, sessionToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60,
+            path: '/',
+          })
+
+          console.log('SESSION COOKIE SET:', SESSION_COOKIE)
+
+          return response
+      }
 
     if (route === '/auth/logout' && method === 'POST') {
       const s = await getSession()
@@ -363,86 +475,1027 @@ async function handleRoute(request, { params }) {
     }
 
     // ============ GOOGLE: GMAIL ============
-    if (route === '/google/gmail' && method === 'GET') {
-      const s = await getSession()
-      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
-      const client = await getAuthedGoogle(s.user.id)
-      if (!client) return handleCORS(NextResponse.json({ error: 'Google not connected' }, { status: 400 }))
-      const url = new URL(request.url)
-      const q = url.searchParams.get('q') || 'category:primary (recruiter OR interview OR opportunity OR "job") newer_than:30d'
-      const gmail = gmailApi(client)
-      const list = await gmail.users.messages.list({ userId: 'me', q, maxResults: 15 })
-      const items = list.data.messages || []
-      const messages = await Promise.all(items.map(async ({ id }) => {
-        const m = await gmail.users.messages.get({ userId: 'me', id, format: 'full' })
-        const h = extractHeaders(m.data)
-        const text = extractText(m.data.payload) || m.data.snippet || ''
-        return {
-          id, threadId: m.data.threadId,
-          from: h.from, to: h.to, subject: h.subject, date: h.date,
-          snippet: m.data.snippet,
-          text: text.slice(0, 4000),
-        }
-      }))
-      return handleCORS(NextResponse.json({ messages }))
+if (route === '/google/gmail' && method === 'GET') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    )
+  }
+
+  const client = await getAuthedGoogle(s.user.id)
+
+  if (!client) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Google not connected' },
+        { status: 400 }
+      )
+    )
+  }
+
+  const url = new URL(request.url)
+
+  // Optional Gmail search.
+  // If no q is provided, fetch latest emails.
+  const q = url.searchParams.get('q') || ''
+
+  try {
+    // --------------------------------------------------
+    // STEP 1: Get latest message IDs
+    // --------------------------------------------------
+
+    const listParams = {
+      maxResults: 20,
     }
+
+    if (q.trim()) {
+      listParams.q = q.trim()
+    }
+
+    const listResponse = await client.request({
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages',
+      params: listParams,
+    })
+
+    const items = listResponse.data.messages || []
+
+    // --------------------------------------------------
+    // STEP 2: Fetch messages in small batches
+    // Avoid Gmail 429 "Too many concurrent requests"
+    // --------------------------------------------------
+
+    const messages = []
+
+    const batchSize = 10
+
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize)
+
+      const results = await Promise.all(
+        batch.map(async ({ id }) => {
+          try {
+            const messageResponse = await client.request({
+              url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}`,
+              params: {
+                format: 'full',
+              },
+            })
+
+            const message = messageResponse.data
+            const h = extractHeaders(message)
+
+            const text =
+              extractText(message.payload) ||
+              message.snippet ||
+              ''
+
+            return {
+              id,
+              threadId: message.threadId,
+              messageId: h['message-id'] || '',
+              from: h.from || '',
+              to: h.to || '',
+              subject: h.subject || '(no subject)',
+              date: h.date || '',
+              snippet: message.snippet || '',
+              text: text.slice(0, 4000),
+
+              // Gmail internal timestamp.
+              // Used to guarantee newest-first ordering.
+              internalDate: Number(message.internalDate || 0),
+
+              // Useful for frontend unread/read state.
+              labelIds: message.labelIds || [],
+            }
+          } catch (error) {
+            console.error(
+              `Failed to load Gmail message ${id}:`,
+              error.message
+            )
+
+            return null
+          }
+        })
+      )
+
+      messages.push(
+        ...results.filter(Boolean)
+      )
+    }
+
+    // --------------------------------------------------
+    // STEP 3: Sort newest → oldest
+    // --------------------------------------------------
+
+    messages.sort(
+      (a, b) => b.internalDate - a.internalDate
+    )
+
+    // --------------------------------------------------
+    // STEP 4: Return clean response
+    // --------------------------------------------------
+
+    return handleCORS(
+      NextResponse.json({
+        messages,
+        total: messages.length,
+        query: q || null,
+      })
+    )
+
+  } catch (error) {
+    console.error('GMAIL API ERROR:', error)
+
+    return handleCORS(
+      NextResponse.json(
+        {
+          error:
+            error.response?.data?.error?.message ||
+            error.message ||
+            'Failed to load Gmail',
+        },
+        {
+          status: error.response?.status || 500,
+        }
+      )
+    )
+  }
+}
+
+    // ============ GOOGLE: GMAIL DRAFT ============
+    if (route === '/google/gmail/draft' && method === 'POST') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      const client = await getAuthedGoogle(s.user.id)
+
+      if (!client) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Google not connected' },
+            { status: 400 }
+          )
+        )
+      }
+
+      try {
+        const body = await request.json()
+
+        const from = (body.from || '').toString().trim()
+        const to = (body.to || '').toString().trim()
+        const subject = (body.subject || '').toString().trim()
+        const instruction = (body.instruction || '').toString().trim()
+        const emailText = (body.emailText || '').toString().trim()
+        if (!to || !emailText) {
+          return handleCORS(
+            NextResponse.json(
+              { error: 'Recipient and email content are required' },
+              { status: 400 }
+            )
+          )
+        }
+
+        const messages = [
+          {
+            role: 'system',
+            content: `
+You are Veyra AI, an expert career communication assistant.
+
+The email is being written and sent by Kiran.
+Always write from Kiran's perspective.
+If you include a signature, use "Kiran".
+Never use the recruiter's name as the sender or signature.
+
+
+Write professional recruiter/job-related email replies.
+
+Rules:
+- Be concise and natural.
+- Never invent qualifications, experience, dates, salary, interviews, or commitments.
+- Do not claim the user has done something unless the supplied context says so.
+- Keep the tone confident, polite and professional.
+- Return JSON only.
+`
+          },
+          {
+            role: 'user',
+            content: `
+Create a reply to this recruiter/career email.
+
+FROM:
+${from}
+
+TO:
+${to}
+
+SUBJECT:
+${subject}
+
+ORIGINAL EMAIL:
+${emailText}
+
+USER INSTRUCTION:
+${instruction || 'Write a professional and interested reply. Ask for the next steps if appropriate.'}
+
+Return exactly:
+
+{
+  "subject": "string",
+  "body": "string"
+}
+`
+          }
+        ]
+        console.log('CALENDAR DETECTOR INPUT:', {
+          emailDate,
+          from,
+          subject,
+          emailText: emailText.slice(0, 4000),
+        })
+        const raw = await complete(
+          messages,
+          { response_format: { type: 'json_object' } }
+        )
+
+        const data = parseJson(raw)
+        console.log('CALENDAR DETECTOR RAW:', raw)
+        console.log('CALENDAR DETECTOR PARSED:', data)
+        return handleCORS(
+          NextResponse.json({
+            to,
+            subject: draft.subject || (
+              subject.toLowerCase().startsWith('re:')
+                ? subject
+                : `Re: ${subject}`
+            ),
+            body: draft.body || '',
+          })
+        )
+      } catch (error) {
+        console.error('GMAIL DRAFT ERROR:', error)
+
+        return handleCORS(
+          NextResponse.json(
+            {
+              error:
+                error.response?.data?.error?.message ||
+                error.message ||
+                'Failed to generate email draft',
+            },
+            { status: error.response?.status || 500 }
+          )
+        )
+      }
+    }
+
+    // ============ GOOGLE: GMAIL SEND ============
+    if (route === '/google/gmail/send' && method === 'POST') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        )
+      }
+
+      const client = await getAuthedGoogle(s.user.id)
+
+      if (!client) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Google not connected' },
+            { status: 400 }
+          )
+        )
+      }
+
+      try {
+        const body = await request.json()
+
+        const to = (body.to || '').toString().trim()
+        const subject = (body.subject || '').toString().trim()
+        const emailBody = (body.body || '').toString().trim()
+        const threadId = (body.threadId || '').toString().trim()
+        const inReplyTo = (body.inReplyTo || '').toString().trim()
+        const references = (body.references || '').toString().trim()
+
+        if (!to) {
+          return handleCORS(
+            NextResponse.json(
+              { error: 'Recipient is required' },
+              { status: 400 }
+            )
+          )
+        }
+
+        if (!emailBody) {
+          return handleCORS(
+            NextResponse.json(
+              { error: 'Email body is required' },
+              { status: 400 }
+            )
+          )
+        }
+
+        if (!subject) {
+          return handleCORS(
+            NextResponse.json(
+              { error: 'Subject is required' },
+              { status: 400 }
+            )
+          )
+        }
+
+        const headers = [
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          'MIME-Version: 1.0',
+          'Content-Type: text/plain; charset=UTF-8',
+          'Content-Transfer-Encoding: 8bit',
+        ]
+
+        if (inReplyTo) {
+          headers.push(`In-Reply-To: ${inReplyTo}`)
+        }
+
+        if (references) {
+          headers.push(`References: ${references}`)
+        }
+
+        const mimeMessage =
+          headers.join('\r\n') +
+          '\r\n\r\n' +
+          emailBody
+
+        const raw = Buffer
+          .from(mimeMessage, 'utf8')
+          .toString('base64url')
+
+        const payload = {
+          raw,
+        }
+
+        if (threadId) {
+          payload.threadId = threadId
+        }
+
+        const response = await client.request({
+          method: 'POST',
+          url: 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+          data: payload,
+        })
+
+        return handleCORS(
+          NextResponse.json({
+            ok: true,
+            messageId: response.data?.id || null,
+            threadId: response.data?.threadId || threadId || null,
+          })
+        )
+      } catch (error) {
+        console.error('GMAIL SEND ERROR:', error)
+
+        return handleCORS(
+          NextResponse.json(
+            {
+              error:
+                error.response?.data?.error?.message ||
+                error.message ||
+                'Failed to send email',
+            },
+            { status: error.response?.status || 500 }
+          )
+        )
+      }
+    }
+
+    // ============ GOOGLE: GMAIL AI COMPOSE ============
+if (route === '/google/gmail/compose' && method === 'POST') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const client = await getAuthedGoogle(s.user.id)
+
+  if (!client) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Google not connected' },
+        { status: 400 }
+      )
+    )
+  }
+
+  try {
+    const body = await request.json()
+
+    const to = (body.to || '').toString().trim()
+    const requestedSubject = (body.subject || '').toString().trim()
+    const instruction = (body.instruction || '').toString().trim()
+
+    if (!to) {
+      return handleCORS(
+        NextResponse.json(
+          { error: 'Recipient is required' },
+          { status: 400 }
+        )
+      )
+    }
+
+    if (!instruction) {
+      return handleCORS(
+        NextResponse.json(
+          { error: 'Email instruction is required' },
+          { status: 400 }
+        )
+      )
+    }
+
+    if (!requestedSubject) {
+      return handleCORS(
+        NextResponse.json(
+          { error: 'Subject is required' },
+          { status: 400 }
+        )
+      )
+    }
+
+
+    const messages = [
+      {
+        role: 'system',
+        content: `
+    You are Veyra's intelligent career calendar detector.
+
+    Your job is to detect REAL scheduled career-related events from emails.
+
+    DETECT an event when the email contains a specific scheduled:
+    - job interview
+    - HR interview
+    - technical interview
+    - recruiter call
+    - hiring manager call
+    - hiring manager meeting
+    - networking meeting
+    - career meeting
+    - assessment
+    - coding test
+    - interview round
+    - onboarding/joining appointment
+    - application deadline
+    - other explicitly scheduled career appointment
+
+    IMPORTANT:
+    An email does NOT need to use the exact words "calendar", "meeting", or "appointment".
+
+    Examples that SHOULD be detected:
+    - "Your interview is scheduled for August 15 at 11 AM."
+    - "We would like to invite you for an interview on Monday at 2 PM."
+    - "The next round will be held tomorrow at 10:30 AM."
+    - "Please join the recruiter call on August 20 at 4 PM."
+    - "Your assessment is scheduled for Friday."
+    - "You are invited to a Google Meet interview."
+    - "The HR discussion is confirmed for 3 PM."
+    - "Please attend the interview at our office."
+
+    DO NOT detect:
+    - newsletters
+    - marketing emails
+    - generic job alerts
+    - investment/news emails
+    - generic recruiter outreach with no scheduled event
+    - rejection emails
+    - application acknowledgements with no scheduled date
+    - emails merely mentioning an interview without actually scheduling one
+
+    CRITICAL:
+    1. Use the email content, subject, sender and email date together.
+    2. Resolve relative dates such as "today", "tomorrow", "Monday", "next Friday" using EMAIL DATE as the reference date.
+    3. If a specific event is clearly scheduled, detected MUST be true.
+    4. Never invent a date or time.
+    5. If a date is present but no time is present, keep startTime null.
+    6. If a time is present but the date is genuinely unknown, keep date null.
+    7. If duration is not stated, use null.
+    8. Extract Google Meet, Zoom, Teams, phone number, office address, or other location when present.
+    9. Keep the title concise and useful.
+    10. confidence must be between 0 and 1.
+    11. Return ONLY valid JSON.
+        `.trim(),
+      },
+      {
+        role: 'user',
+        content: `
+    Analyze this career email.
+
+    EMAIL DATE:
+    ${emailDate}
+
+    FROM:
+    ${from}
+
+    SUBJECT:
+    ${subject}
+
+    EMAIL CONTENT:
+    ${emailText}
+
+    Determine whether this email contains a REAL scheduled career event.
+
+    Return exactly this JSON:
+
+    {
+      "detected": boolean,
+      "type": "interview" | "meeting" | "assessment" | "deadline" | "onboarding" | "other" | null,
+      "title": string | null,
+      "date": "YYYY-MM-DD" | null,
+      "startTime": "HH:mm" | null,
+      "durationMinutes": number | null,
+      "location": string | null,
+      "description": string | null,
+      "confidence": number
+    }
+
+    IMPORTANT:
+    - If the email clearly schedules an interview/meeting/assessment, detected must be true.
+    - Convert dates to YYYY-MM-DD.
+    - Convert times to 24-hour HH:mm.
+    - Resolve relative dates using EMAIL DATE.
+    - Do not invent missing information.
+    - If no real event exists, return detected=false and null event fields.
+        `.trim(),
+      },
+    ]
+
+    const raw = await complete(
+      messages,
+      { response_format: { type: 'json_object' } }
+    )
+
+    const email = parseJson(raw)
+
+    const subject = (email.subject || '').toString().trim()
+    const emailBody = (email.body || '').toString().trim()
+
+    if (!subject || !emailBody) {
+      throw new Error('AI returned an incomplete email')
+    }
+
+    return handleCORS(
+      NextResponse.json({
+        ok: true,
+        to,
+        subject,
+        body: emailBody,
+      })
+    )
+  } catch (error) {
+    console.error('GMAIL AI COMPOSE ERROR:', error)
+
+    return handleCORS(
+      NextResponse.json(
+        {
+          error:
+            error.response?.data?.error?.message ||
+            error.message ||
+            'Failed to compose and send email',
+        },
+        { status: error.response?.status || 500 }
+      )
+    )
+  }
+}
 
     // ============ GOOGLE: CALENDAR ============
     if (route === '/google/calendar' && method === 'GET') {
       const s = await getSession()
-      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Unauthorized' },
+            { status: 401 }
+          )
+        )
+      }
+
       const client = await getAuthedGoogle(s.user.id)
-      if (!client) return handleCORS(NextResponse.json({ error: 'Google not connected' }, { status: 400 }))
-      const cal = calendarApi(client)
-      const r = await cal.events.list({
-        calendarId: 'primary',
-        singleEvents: true,
-        orderBy: 'startTime',
-        timeMin: new Date().toISOString(),
-        maxResults: 20,
-      })
-      return handleCORS(NextResponse.json({ events: r.data.items || [] }))
+
+      if (!client) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Google not connected' },
+            { status: 400 }
+          )
+        )
+      }
+
+      try {
+        const response = await client.request({
+          url: 'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+          params: {
+            timeMin: new Date().toISOString(),
+            singleEvents: true,
+            orderBy: 'startTime',
+            maxResults: 20,
+          },
+        })
+
+        return handleCORS(
+          NextResponse.json({
+            events: response.data.items || [],
+          })
+        )
+      } catch (error) {
+        console.error('CALENDAR API ERROR:', error)
+
+        return handleCORS(
+          NextResponse.json(
+            {
+              error:
+                error.response?.data?.error?.message ||
+                error.message ||
+                'Failed to load Calendar',
+            },
+            {
+              status: error.response?.status || 500,
+            }
+          )
+        )
+      }
     }
 
     if (route === '/google/calendar/events' && method === 'POST') {
       const s = await getSession()
-      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
-      const client = await getAuthedGoogle(s.user.id)
-      if (!client) return handleCORS(NextResponse.json({ error: 'Google not connected' }, { status: 400 }))
-      const body = await request.json()
-      if (!body.summary || !body.start || !body.end) {
-        return handleCORS(NextResponse.json({ error: 'summary, start, end required' }, { status: 400 }))
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Unauthorized' },
+            { status: 401 }
+          )
+        )
       }
-      const cal = calendarApi(client)
-      const r = await cal.events.insert({
-        calendarId: 'primary',
-        requestBody: {
+
+      const client = await getAuthedGoogle(s.user.id)
+
+      if (!client) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Google not connected' },
+            { status: 400 }
+          )
+        )
+      }
+
+      try {
+        const body = await request.json()
+
+        if (!body.summary || !body.start || !body.end) {
+          return handleCORS(
+            NextResponse.json(
+              { error: 'summary, start, end required' },
+              { status: 400 }
+            )
+          )
+        }
+
+        const requestBody = {
           summary: body.summary,
           description: body.description || '',
+          location: body.location || undefined,
           start: body.start,
           end: body.end,
-          location: body.location || undefined,
-        },
-      })
-      return handleCORS(NextResponse.json({ event: r.data }))
+        }
+
+        console.log('CALENDAR CREATE REQUEST:', {
+          summary: requestBody.summary,
+          start: requestBody.start,
+          end: requestBody.end,
+          location: requestBody.location,
+        })
+
+        const response = await client.request({
+          url: 'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          data: requestBody,
+        })
+
+        console.log('CALENDAR EVENT CREATED:', response.data?.id)
+
+        return handleCORS(
+          NextResponse.json({
+            event: response.data,
+          })
+        )
+
+      } catch (error) {
+        console.error('CALENDAR CREATE ERROR:', error)
+
+        return handleCORS(
+          NextResponse.json(
+            {
+              error:
+                error.response?.data?.error?.message ||
+                error.message ||
+                'Failed to create Calendar event',
+            },
+            {
+              status: error.response?.status || 500,
+            }
+          )
+        )
+      }
     }
+    // ============ AI: CALENDAR EVENT CREATOR ============
+if (route === '/ai/calendar-create' && method === 'POST') {
+  const body = await request.json().catch(() => ({}))
+
+  const instruction = (body.instruction || '').toString().trim()
+
+  if (!instruction) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Event instruction is required' },
+        { status: 400 }
+      )
+    )
+  }
+
+  try {
+    const now = new Date()
+
+    const today = now.toISOString().slice(0, 10)
+
+    const messages = [
+      {
+        role: 'system',
+        content: `
+You are Veyra AI's calendar event parser.
+
+Convert the user's request into ONE calendar event.
+
+Today's date is:
+${today}
+
+IMPORTANT RULES:
+
+1. Return ONLY valid JSON.
+2. title must always be a useful event title.
+3. date MUST be YYYY-MM-DD.
+4. startTime MUST be HH:mm in 24-hour format.
+5. "tomorrow" means the calendar date immediately after today.
+6. "today" means today's date.
+7. Convert AM/PM correctly.
+8. If duration is not provided, use 60 minutes.
+9. If location is not provided, return null.
+10. Never invent a date when the user did not provide enough information.
+11. For relative dates such as tomorrow, use today's date above.
+12. confidence must be between 0 and 1.
+
+Examples:
+
+User:
+"Tomorrow at 3 PM interview with Rahul for 45 minutes on Google Meet."
+
+Return:
+{
+  "title": "Interview with Rahul",
+  "date": "YYYY-MM-DD",
+  "startTime": "15:00",
+  "durationMinutes": 45,
+  "location": "Google Meet",
+  "description": "Interview with Rahul",
+  "confidence": 1
+}
+
+User:
+"Meeting with Priya on Friday at 10 AM"
+
+Return:
+{
+  "title": "Meeting with Priya",
+  "date": "YYYY-MM-DD",
+  "startTime": "10:00",
+  "durationMinutes": 60,
+  "location": null,
+  "description": "Meeting with Priya",
+  "confidence": 1
+}
+        `.trim(),
+      },
+      {
+        role: 'user',
+        content: `
+USER REQUEST:
+
+${instruction}
+
+Return exactly this JSON:
+
+{
+  "title": "string",
+  "date": "YYYY-MM-DD",
+  "startTime": "HH:mm",
+  "durationMinutes": number,
+  "location": "string or null",
+  "description": "string or null",
+  "confidence": number
+}
+        `.trim(),
+      },
+    ]
+
+    const raw = await complete(
+      messages,
+      {
+        response_format: {
+          type: 'json_object',
+        },
+      }
+    )
+
+    console.log('AI CALENDAR RAW:', raw)
+
+    const data = parseJson(raw)
+
+    console.log('AI CALENDAR PARSED:', data)
+
+    const title =
+      typeof data.title === 'string'
+        ? data.title.trim()
+        : ''
+
+    const date =
+      typeof data.date === 'string'
+        ? data.date.trim()
+        : ''
+
+    const startTime =
+      typeof data.startTime === 'string'
+        ? data.startTime.trim()
+        : ''
+
+    const durationMinutes =
+      Number(data.durationMinutes) > 0
+        ? Number(data.durationMinutes)
+        : 60
+
+    const location =
+      typeof data.location === 'string'
+        ? data.location.trim()
+        : null
+
+    const description =
+      typeof data.description === 'string'
+        ? data.description.trim()
+        : null
+
+    const confidence =
+      typeof data.confidence === 'number'
+        ? Math.max(0, Math.min(1, data.confidence))
+        : 0
+
+    // Validate date
+    const validDate =
+      /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      !Number.isNaN(
+        new Date(`${date}T00:00:00`).getTime()
+      )
+
+    // Validate time
+    const validTime =
+      /^\d{2}:\d{2}$/.test(startTime) &&
+      Number(startTime.slice(0, 2)) >= 0 &&
+      Number(startTime.slice(0, 2)) <= 23 &&
+      Number(startTime.slice(3, 5)) >= 0 &&
+      Number(startTime.slice(3, 5)) <= 59
+
+    if (!title || !validDate || !validTime) {
+      console.error('AI CALENDAR INVALID RESPONSE:', {
+        title,
+        date,
+        startTime,
+        raw,
+      })
+
+      return handleCORS(
+        NextResponse.json(
+          {
+            error:
+              'Veyra could not determine a valid event title, date, or time.',
+            raw: data,
+          },
+          { status: 422 }
+        )
+      )
+    }
+
+    return handleCORS(
+      NextResponse.json({
+        title,
+        date,
+        startTime,
+        durationMinutes,
+        location,
+        description,
+        confidence,
+      })
+    )
+
+  } catch (error) {
+    console.error('AI CALENDAR CREATE ERROR:', error)
+
+    return handleCORS(
+      NextResponse.json(
+        {
+          error:
+            error.response?.data?.error?.message ||
+            error.message ||
+            'Failed to create calendar event with AI',
+        },
+        { status: 500 }
+      )
+    )
+  }
+}
+
 
     // ============ GOOGLE: DRIVE ============
-    if (route === '/google/drive' && method === 'GET') {
-      const s = await getSession()
-      if (!s) return handleCORS(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
-      const client = await getAuthedGoogle(s.user.id)
-      if (!client) return handleCORS(NextResponse.json({ error: 'Google not connected' }, { status: 400 }))
-      const drive = driveApi(client)
-      const r = await drive.files.list({
+if (route === '/google/drive' && method === 'GET') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    )
+  }
+
+  const client = await getAuthedGoogle(s.user.id)
+
+  if (!client) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Google not connected' },
+        { status: 400 }
+      )
+    )
+  }
+
+  try {
+    const response = await client.request({
+      url: 'https://www.googleapis.com/drive/v3/files',
+      params: {
         pageSize: 30,
         orderBy: 'modifiedTime desc',
-        fields: 'files(id,name,mimeType,size,modifiedTime,webViewLink,iconLink)',
-        q: "trashed = false",
-      })
-      return handleCORS(NextResponse.json({ files: r.data.files || [] }))
-    }
+        fields:
+          'files(id,name,mimeType,size,modifiedTime,webViewLink,iconLink)',
+        q: 'trashed = false',
+      },
+    })
 
+    return handleCORS(
+      NextResponse.json({
+        files: response.data.files || [],
+      })
+    )
+  } catch (error) {
+    console.error('DRIVE API ERROR:', error)
+
+    return handleCORS(
+      NextResponse.json(
+        {
+          error:
+            error.response?.data?.error?.message ||
+            error.message ||
+            'Failed to load Drive',
+        },
+        {
+          status: error.response?.status || 500,
+        }
+      )
+    )
+  }
+}
     // ============ AI: CHAT (with memory) ============
     if (route === '/ai/chat' && method === 'POST') {
       const body = await request.json()
@@ -484,6 +1537,126 @@ async function handleRoute(request, { params }) {
       if (s) upsertMemoriesFromMessage(s.user.id, message, answer).catch(() => {})
       return handleCORS(NextResponse.json({ sessionId, answer }))
     }
+        // ============ AI: CALENDAR EVENT DETECTOR ============
+        if (route === '/ai/calendar-detect' && method === 'POST') {
+          const body = await request.json().catch(() => ({}))
+
+          const subject = (body.subject || '').toString().trim()
+          const from = (body.from || '').toString().trim()
+          const emailText = (body.emailText || '').toString().trim()
+          const emailDate = (body.date || '').toString().trim()
+
+          if (!subject && !emailText) {
+            return handleCORS(
+              NextResponse.json(
+                { error: 'Email subject or content is required' },
+                { status: 400 }
+              )
+            )
+          }
+
+          const messages = [
+            {
+              role: 'system',
+              content: `
+    You are Veyra's career calendar detection engine.
+
+    Analyze an email and determine whether it contains a real calendar-worthy
+    career event such as:
+
+    - job interview
+    - recruiter call
+    - hiring manager meeting
+    - assessment
+    - technical interview
+    - HR interview
+    - networking meeting
+    - career-related appointment
+    - application deadline
+    - joining/onboarding date
+
+    Do NOT create an event for ordinary emails, newsletters, job alerts,
+    marketing emails, rejection emails, or generic recruiter outreach unless
+    a specific scheduled event or deadline is clearly mentioned.
+
+    Never invent a date or time.
+
+    Return ONLY valid JSON.
+              `.trim(),
+            },
+            {
+              role: 'user',
+              content: `
+    EMAIL DATE:
+    ${emailDate}
+
+    FROM:
+    ${from}
+
+    SUBJECT:
+    ${subject}
+
+    EMAIL:
+    ${emailText}
+
+    Return exactly this JSON structure:
+
+    {
+      "detected": boolean,
+      "type": "interview" | "meeting" | "assessment" | "deadline" | "onboarding" | "other" | null,
+      "title": string | null,
+      "date": "YYYY-MM-DD" | null,
+      "startTime": "HH:mm" | null,
+      "durationMinutes": number | null,
+      "location": string | null,
+      "description": string | null,
+      "confidence": number
+    }
+
+    Rules:
+
+    1. detected must be false if there is no clearly identifiable event.
+    2. Never invent missing date/time information.
+    3. If only a date is mentioned, keep startTime null.
+    4. If duration is not explicitly mentioned, keep durationMinutes null.
+    5. If the email contains a Google Meet, Zoom, Teams, office address, or
+       other meeting location, extract it.
+    6. confidence must be between 0 and 1.
+    7. Return null for fields that cannot be determined.
+              `.trim(),
+            },
+          ]
+
+          try {
+            const raw = await complete(
+              messages,
+              { response_format: { type: 'json_object' } }
+            )
+
+            const data = parseJson(raw)
+
+            console.log('CALENDAR DETECTOR RAW:', raw)
+            console.log('CALENDAR DETECTOR PARSED:', data)
+
+            return handleCORS(
+              NextResponse.json(data)
+            )
+          } catch (error) {
+            console.error('CALENDAR DETECTION ERROR:', error)
+
+            return handleCORS(
+              NextResponse.json(
+                {
+                  error:
+                    error.message ||
+                    'Failed to detect calendar event',
+                },
+                { status: 500 }
+              )
+            )
+          }
+        }
+
 
     // ============ AI: ATS ANALYZER ============
     if (route === '/ai/ats' && method === 'POST') {
@@ -644,6 +1817,688 @@ async function handleRoute(request, { params }) {
         interviewRate,
         offerRate,
       }))
+    }
+
+    // ============================================================
+// COMPANY JOBS + APPLICATIONS — MIGRATED FROM VERYA
+// ============================================================
+
+// Company: create job
+if (route === '/company/jobs' && method === 'POST') {
+  const s = await getSession()
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const body = await request.json()
+  const now = new Date()
+
+  if (!body.title || !body.department || !body.location || !body.description) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Title, department, location and description are required' },
+        { status: 400 }
+      )
+    )
+  }
+
+  const job = {
+    id: uuidv4(),
+
+    companyId: s.user.id,
+    createdBy: s.user.id,
+
+    companyName:
+      s.user.companyName ||
+      s.user.name ||
+      'Company',
+
+    title: body.title,
+    department: body.department,
+    location: body.location,
+
+    employmentType: body.employmentType || 'full_time',
+    experience: body.experience || '',
+
+    salaryMin: Number(body.salaryMin || 0),
+    salaryMax: Number(body.salaryMax || 0),
+
+    description: body.description,
+    skills: Array.isArray(body.skills) ? body.skills : [],
+
+    eligibility: body.eligibility || '',
+    applicationDeadline: body.applicationDeadline
+      ? new Date(body.applicationDeadline)
+      : null,
+
+    status: body.status || 'draft',
+
+    createdAt: now,
+    updatedAt: now,
+  }
+
+  await db.collection('company_jobs').insertOne(job)
+
+  return handleCORS(
+    NextResponse.json(job, { status: 201 })
+  )
+}
+
+
+// Company: own jobs
+if (route === '/company/jobs' && method === 'GET') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const jobs = await db
+    .collection('company_jobs')
+    .find({ companyId: s.user.id })
+    .sort({ createdAt: -1 })
+    .toArray()
+
+  return handleCORS(
+    NextResponse.json(jobs)
+  )
+}
+
+
+// Company: update job
+if (route.startsWith('/company/jobs/') && method === 'PUT') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const id = route.replace('/company/jobs/', '')
+  const body = await request.json()
+
+  const allowed = [
+    'title',
+    'department',
+    'location',
+    'employmentType',
+    'experience',
+    'salaryMin',
+    'salaryMax',
+    'description',
+    'skills',
+    'eligibility',
+    'applicationDeadline',
+    'status',
+  ]
+
+  const update = {
+    updatedAt: new Date(),
+  }
+
+  for (const key of allowed) {
+    if (key in body) {
+      update[key] = body[key]
+    }
+  }
+
+  await db.collection('company_jobs').updateOne(
+    {
+      id,
+      companyId: s.user.id,
+    },
+    {
+      $set: update,
+    }
+  )
+
+  const job = await db.collection('company_jobs').findOne({
+    id,
+    companyId: s.user.id,
+  })
+
+  return handleCORS(
+    NextResponse.json(job)
+  )
+}
+
+
+// Company: delete job
+if (route.startsWith('/company/jobs/') && method === 'DELETE') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const id = route.replace('/company/jobs/', '')
+
+  await db.collection('company_jobs').deleteOne({
+    id,
+    companyId: s.user.id,
+  })
+
+  return handleCORS(
+    NextResponse.json({ ok: true })
+  )
+}
+
+
+// Public: published jobs
+if (route === '/public/jobs' && method === 'GET') {
+  const jobs = await db
+    .collection('company_jobs')
+    .find({
+      status: 'published',
+    })
+    .sort({ createdAt: -1 })
+    .toArray()
+
+  return handleCORS(
+    NextResponse.json(jobs)
+  )
+}
+
+
+// Public: single published job
+if (route.startsWith('/public/jobs/') && method === 'GET') {
+  const id = route.replace('/public/jobs/', '')
+
+  const job = await db.collection('company_jobs').findOne({
+    id,
+    status: 'published',
+  })
+
+  if (!job) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Job not found' },
+        { status: 404 }
+      )
+    )
+  }
+
+  return handleCORS(
+    NextResponse.json(job)
+  )
+}
+
+
+// Student: apply to company job
+if (route === '/applications' && method === 'POST') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const body = await request.json()
+
+  if (!body.jobId) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'jobId is required' },
+        { status: 400 }
+      )
+    )
+  }
+
+  const job = await db.collection('company_jobs').findOne({
+    id: body.jobId,
+    status: 'published',
+  })
+
+  if (!job) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Job not found or not published' },
+        { status: 404 }
+      )
+    )
+  }
+
+  const existing = await db.collection('applications').findOne({
+    studentId: s.user.id,
+    jobId: job.id,
+    isDeleted: false,
+  })
+
+  if (existing) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'You have already applied for this job.' },
+        { status: 409 }
+      )
+    )
+  }
+
+  const application = {
+    id: uuidv4(),
+
+    studentId: s.user.id,
+    studentName: s.user.name || '',
+    studentEmail: s.user.email || '',
+
+    companyId: job.companyId,
+    companyName: job.companyName,
+
+    jobId: job.id,
+    jobTitle: job.title,
+
+    resumeId: body.resumeId || null,
+    coverLetter: body.coverLetter || '',
+
+    status: 'Applied',
+    matchScore: Number(body.matchScore || 0),
+
+    notes: '',
+    appliedAt: new Date(),
+
+    isDeleted: false,
+
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+
+  await db.collection('applications').insertOne(application)
+
+  return handleCORS(
+    NextResponse.json(application, { status: 201 })
+  )
+}
+
+
+// Student: my applications
+if (route === '/applications/student' && method === 'GET') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const applications = await db
+    .collection('applications')
+    .find({
+      studentId: s.user.id,
+      isDeleted: false,
+    })
+    .sort({ createdAt: -1 })
+    .toArray()
+
+  return handleCORS(
+    NextResponse.json(applications)
+  )
+}
+
+
+// Company: applicants
+if (route === '/applications/company' && method === 'GET') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const applications = await db
+    .collection('applications')
+    .find({
+      companyId: s.user.id,
+      isDeleted: false,
+    })
+    .sort({ createdAt: -1 })
+    .toArray()
+
+  return handleCORS(
+    NextResponse.json(applications)
+  )
+}
+
+
+// Company: change application status
+if (route.startsWith('/applications/') && route.endsWith('/status') && method === 'PUT') {
+  const s = await getSession()
+
+  if (!s) {
+    return handleCORS(
+      NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    )
+  }
+
+  const parts = route.split('/')
+  const applicationId = parts[2]
+
+  const body = await request.json()
+
+  const allowedStatuses = [
+    'Applied',
+    'Screening',
+    'Shortlisted',
+    'Interview',
+    'Offer',
+    'Hired',
+    'Rejected',
+    'Withdrawn',
+  ]
+
+  if (!allowedStatuses.includes(body.status)) {
+    return handleCORS(
+      NextResponse.json(
+        { error: 'Invalid application status' },
+        { status: 400 }
+      )
+    )
+  }
+
+  const result = await db.collection('applications').findOneAndUpdate(
+    {
+      id: applicationId,
+      companyId: s.user.id,
+      isDeleted: false,
+    },
+    {
+      $set: {
+        status: body.status,
+        updatedAt: new Date(),
+      },
+    },
+    {
+      returnDocument: 'after',
+    }
+  )
+
+  return handleCORS(
+    NextResponse.json(result.value || result)
+  )
+}
+
+    // ============ PUBLIC COMPANY JOBS ============
+
+    if (route === '/public/jobs' && method === 'GET') {
+      const jobs = await db.collection('jobs')
+        .find({ status: 'published' })
+        .sort({ createdAt: -1 })
+        .toArray()
+
+      const companyIds = jobs
+        .map(j => j.companyId)
+        .filter(Boolean)
+
+      const companies = companyIds.length
+        ? await db.collection('companies')
+            .find({ _id: { $in: companyIds } })
+            .project({ companyName: 1 })
+            .toArray()
+        : []
+
+      const companyMap = new Map(
+        companies.map(c => [String(c._id), c])
+      )
+
+      return handleCORS(
+        NextResponse.json(
+          jobs.map(({ _id, ...job }) => ({
+            ...job,
+            id: String(_id),
+            companyName:
+              companyMap.get(String(job.companyId))?.companyName ||
+              job.company ||
+              'Company',
+          }))
+        )
+      )
+    }
+
+    // ============ PUBLIC JOB DETAIL ============
+
+    if (route.startsWith('/public/jobs/') && method === 'GET') {
+      const id = route.replace('/public/jobs/', '')
+
+      let job
+      try {
+        job = await db.collection('jobs').findOne({
+          _id: new (await import('mongodb')).ObjectId(id),
+          status: 'published',
+        })
+      } catch {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Invalid job id' },
+            { status: 400 }
+          )
+        )
+      }
+
+      if (!job) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Job not found' },
+            { status: 404 }
+          )
+        )
+      }
+
+      let company = null
+
+      if (job.companyId) {
+        company = await db.collection('companies').findOne(
+          { _id: job.companyId },
+          { projection: { companyName: 1 } }
+        )
+      }
+
+      const { _id, ...rest } = job
+
+      return handleCORS(
+        NextResponse.json({
+          ...rest,
+          id: String(_id),
+          companyName:
+            company?.companyName ||
+            job.company ||
+            'Company',
+        })
+      )
+    }
+
+    // ============ STUDENT: APPLY TO COMPANY JOB ============
+
+    if (route === '/applications' && method === 'POST') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Unauthorized' },
+            { status: 401 }
+          )
+        )
+      }
+
+      const body = await request.json()
+      const jobId = body.jobId
+
+      if (!jobId) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'jobId is required' },
+            { status: 400 }
+          )
+        )
+      }
+
+      let objectId
+
+      try {
+        const { ObjectId } = await import('mongodb')
+        objectId = new ObjectId(jobId)
+      } catch {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Invalid job id' },
+            { status: 400 }
+          )
+        )
+      }
+
+      const job = await db.collection('jobs').findOne({
+        _id: objectId,
+        status: 'published',
+      })
+
+      if (!job) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Job is no longer available' },
+            { status: 404 }
+          )
+        )
+      }
+
+      const studentId = s.user.id
+
+      const existing = await db.collection('applications').findOne({
+        studentId,
+        jobId: job._id,
+        isDeleted: { $ne: true },
+      })
+
+      if (existing) {
+        return handleCORS(
+          NextResponse.json(
+            {
+              error: 'You have already applied for this job.',
+            },
+            { status: 409 }
+          )
+        )
+      }
+
+      const now = new Date()
+
+      const application = {
+        studentId,
+        companyId: job.companyId,
+        jobId: job._id,
+
+        resumeId: body.resumeId || null,
+        coverLetter: body.coverLetter || '',
+
+        status: 'Applied',
+        matchScore: body.matchScore ?? 0,
+        notes: '',
+
+        appliedAt: now,
+        isDeleted: false,
+
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      const result =
+        await db.collection('applications').insertOne(
+          application
+        )
+
+      return handleCORS(
+        NextResponse.json(
+          {
+            success: true,
+            id: String(result.insertedId),
+            application: {
+              ...application,
+              id: String(result.insertedId),
+              jobId: String(job._id),
+              companyId: String(job.companyId),
+            },
+          },
+          { status: 201 }
+        )
+      )
+    }
+
+    // ============ STUDENT: MY APPLICATIONS ============
+
+    if (route === '/applications/student' && method === 'GET') {
+      const s = await getSession()
+
+      if (!s) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Unauthorized' },
+            { status: 401 }
+          )
+        )
+      }
+
+      const applications =
+        await db.collection('applications')
+          .find({
+            studentId: s.user.id,
+            isDeleted: { $ne: true },
+          })
+          .sort({ createdAt: -1 })
+          .toArray()
+
+      const jobIds = applications
+        .map(a => a.jobId)
+        .filter(Boolean)
+
+      const jobs = jobIds.length
+        ? await db.collection('jobs')
+            .find({
+              _id: { $in: jobIds },
+            })
+            .toArray()
+        : []
+
+      const jobMap = new Map(
+        jobs.map(j => [String(j._id), j])
+      )
+
+      return handleCORS(
+        NextResponse.json(
+          applications.map(({ _id, ...application }) => {
+            const job =
+              jobMap.get(String(application.jobId))
+
+            return {
+              ...application,
+              id: String(_id),
+              jobId: String(application.jobId),
+              companyId: String(application.companyId),
+              job: job
+                ? {
+                    id: String(job._id),
+                    title: job.title,
+                    role: job.role || job.title,
+                    department: job.department,
+                    company: job.company,
+                    location: job.location,
+                    employmentType: job.employmentType,
+                    experience: job.experience,
+                    salaryMin: job.salaryMin,
+                    salaryMax: job.salaryMax,
+                    description: job.description,
+                    status: job.status,
+                  }
+                : null,
+            }
+          })
+        )
+      )
     }
 
     // ============ JOBS TRACKER ============
@@ -1019,9 +2874,20 @@ async function handleRoute(request, { params }) {
 
     return handleCORS(NextResponse.json({ error: `Route ${route} not found` }, { status: 404 }))
   } catch (error) {
-    console.error('API Error:', error?.message || error)
-    const msg = error?.message || 'Internal server error'
-    return handleCORS(NextResponse.json({ error: msg }, { status: 500 }))
+    console.error("========== FULL ERROR ==========");
+    console.error(error);
+    console.error(error?.stack);
+    console.error("===============================");
+
+    return handleCORS(
+      NextResponse.json(
+        {
+          error: error?.message,
+          stack: error?.stack,
+        },
+        { status: 500 }
+      )
+    );
   }
 }
 

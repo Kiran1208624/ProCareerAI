@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Sparkles, FileText, Target, Zap, BarChart3, Calendar as CalIcon,
+  Sparkles, FileText, Target, Zap, BarChart3, Calendar as CalIcon, CalendarDays,
   Mail, Briefcase, ArrowRight, Check, Send, Loader2, ChevronRight,
   Bot, Layers, Wand2, Copy, Download, User, LogOut,
   Cloud, GitBranch, Linkedin, Brain, Compass, Plus, X, RefreshCw,
@@ -86,14 +86,83 @@ function Dashboard() {
       {/* Sidebar */}
       <aside className="w-64 border-r border-white/5 bg-black/40 flex flex-col shrink-0">
         <div className="p-5 border-b border-white/5">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 via-blue-500 to-violet-500 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-lg font-bold">Veyra</span>
-            <Badge className="ml-auto bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px]">Beta</Badge>
-          </div>
-        </div>
+
+        <a
+  href="#"
+  className="flex items-center gap-3 group select-none"
+>
+  {/* Veyra AI Icon */}
+  <div
+    className="
+      relative
+      w-10 h-10
+      rounded-xl
+      bg-gradient-to-br from-cyan-400 via-blue-500 to-violet-600
+      flex items-center justify-center
+      shadow-[0_0_30px_rgba(59,130,246,0.25)]
+      transition-all duration-300
+      group-hover:scale-105
+      group-hover:shadow-[0_0_38px_rgba(99,102,241,0.45)]
+    "
+  >
+    {/* soft glow */}
+    <div
+      className="
+        absolute inset-0
+        rounded-xl
+        bg-gradient-to-br from-cyan-400 via-blue-500 to-violet-600
+        blur-md
+        opacity-40
+      "
+    />
+
+    {/* V + sparkle */}
+    <svg
+      viewBox="0 0 48 48"
+      className="relative w-7 h-7"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* sparkle */}
+      <path
+        d="M24 5.5L25.8 10.2L30.5 12L25.8 13.8L24 18.5L22.2 13.8L17.5 12L22.2 10.2L24 5.5Z"
+        fill="white"
+      />
+
+      {/* V */}
+      <path
+        d="M10 17L18.5 17L24 31L29.5 17H38L28.5 38C27.7 39.8 26 41 24 41C22 41 20.3 39.8 19.5 38L10 17Z"
+        fill="white"
+      />
+    </svg>
+  </div>
+
+  {/* Wordmark */}
+  <span
+    className="
+      text-[21px]
+      font-bold
+      tracking-[-0.03em]
+      text-white
+      leading-none
+    "
+  >
+    Veyra
+    <span
+      className="
+        ml-1
+        bg-gradient-to-r
+        from-cyan-400
+        via-blue-400
+        to-violet-500
+        bg-clip-text
+        text-transparent
+      "
+    >
+      AI
+    </span>
+  </span>
+</a>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {NAV.filter(n => !n.requireRole || (me.user.role && n.requireRole.includes(me.user.role))).map(n => (
             <button key={n.key} onClick={() => setActive(n.key)}
@@ -117,6 +186,7 @@ function Dashboard() {
             </div>
             <button onClick={logout} className="text-white/40 hover:text-white p-1"><LogOut className="w-4 h-4" /></button>
           </div>
+        </div>
         </div>
       </aside>
 
@@ -608,6 +678,8 @@ function OpportunitiesTab({ me }) {
   )
 }
 
+
+
 // ---------- ATS ----------
 function ATSTab() {
   const [resume, setResume] = useState('')
@@ -690,48 +762,1210 @@ function ATSTab() {
 function GmailTab({ connected }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
-  const [q, setQ] = useState('recruiter OR interview OR opportunity')
+  const [q, setQ] = useState('')
+
+  const [selected, setSelected] = useState(null)
+  const [calendarEvent, setCalendarEvent] = useState(null)
+const [calendarLoading, setCalendarLoading] = useState(false)
+const [calendarCreating, setCalendarCreating] = useState(false)
+
+  const [draft, setDraft] = useState(null)
+  const reviewRef = useRef(null)
+  const [showCompose, setShowCompose] = useState(false)
+  const [composeTo, setComposeTo] = useState('')
+  const [composeSubject, setComposeSubject] = useState('')
+  {/* SUBJECT */}
+<div className="space-y-2">
+  <label className="text-xs text-white/50">
+    Subject
+  </label>
+
+  <Input
+    value={composeSubject}
+    onChange={e => setComposeSubject(e.target.value)}
+    placeholder="Email subject"
+    className="bg-black/40 border-white/10"
+  />
+</div>
+  const [composeInstruction, setComposeInstruction] = useState('')
+  const [composeLoading, setComposeLoading] = useState(false)
+
+  const [draftLoading, setDraftLoading] = useState(false)
+
+  const [sendLoading, setSendLoading] = useState(false)
+  const [instruction, setInstruction] = useState('')
+
   async function load() {
     setLoading(true)
+
     try {
-      const r = await fetch('/api/google/gmail?q=' + encodeURIComponent(q))
+      const r = await fetch(
+      '/api/google/gmail' + (q.trim() ? '?q=' + encodeURIComponent(q.trim()) : '')
+      )
+
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Failed')
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to load Gmail')
+      }
+
       setMessages(data.messages || [])
-    } catch (e) { toast.error(e.message) }
-    finally { setLoading(false) }
+    } catch (e) {
+      toast.error(e.message)
+    } finally {
+      setLoading(false)
+    }
   }
-  useEffect(() => { if (connected) load() }, [connected])
-  if (!connected) return <ConnectGooglePrompt title="Connect Gmail" desc="Sign in with Google to see recruiter emails, interview invites, and application updates." />
+  async function composeAndSend() {
+    if (!composeTo.trim()) {
+      toast.error('Recipient is required')
+      return
+    }
+
+    if (!composeSubject.trim()) {
+      toast.error('Subject is required')
+      return
+    }
+
+    if (!composeInstruction.trim()) {
+      toast.error('Tell AI what you want to say')
+      return
+    }
+
+    setComposeLoading(true)
+
+    try {
+      const r = await fetch('/api/google/gmail/compose', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: composeTo.trim(),
+          subject: composeSubject.trim(),
+          instruction: composeInstruction.trim(),
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to compose email')
+      }
+
+      console.log('AI COMPOSE RESPONSE:', data)
+
+      // IMPORTANT:
+      // Do NOT send automatically.
+      // Put the generated email into the existing draft/review state.
+      setDraft({
+        to: data.to || composeTo.trim(),
+        subject: data.subject || composeSubject.trim(),
+        body: data.body || '',
+        threadId: data.threadId || '',
+        inReplyTo: '',
+        references: '',
+        isNewEmail: true,
+      })
+      console.log('NEW EMAIL REVIEW DRAFT:', {
+        to: data.to || composeTo.trim(),
+        subject: data.subject || composeSubject.trim(),
+        body: data.body || '',
+        isNewEmail: true,
+      })
+      setShowCompose(false)
+      setTimeout(() => {
+        reviewRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      }, 100)
+
+      toast.success('Email ready for review')
+
+    } catch (e) {
+      console.error('AI COMPOSE ERROR:', e)
+      toast.error(e.message || 'Failed to compose email')
+    } finally {
+      setComposeLoading(false)
+    }
+  }
+  useEffect(() => {
+    if (connected) load()
+  }, [connected])
+
+  async function detectCalendarEvent(message) {
+    if (!message) return
+
+    setCalendarLoading(true)
+    setCalendarEvent(null)
+
+    try {
+      const r = await fetch('/api/ai/calendar-detect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: message.from || '',
+          subject: message.subject || '',
+          emailText: message.text || message.snippet || '',
+          date: message.date || '',
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to detect calendar event')
+      }
+
+      console.log('CALENDAR DETECTION:', data)
+
+      if (!data.detected) {
+        console.log('CALENDAR EVENT NOT DETECTED:', {
+          subject: message.subject,
+          from: message.from,
+          date: message.date,
+          text: message.text,
+          snippet: message.snippet,
+          detectorResponse: data,
+        })
+
+        toast.info('No calendar event found in this email')
+        return
+      }
+
+      setCalendarEvent(data)
+    } catch (error) {
+      console.error('CALENDAR DETECTION ERROR:', error)
+      toast.error(error.message || 'Failed to detect calendar event')
+    } finally {
+      setCalendarLoading(false)
+    }
+  }
+
+  async function addDetectedEventToCalendar() {
+    if (!calendarEvent) return
+
+    if (!calendarEvent.date || !calendarEvent.startTime) {
+      toast.error('Event date or time is missing')
+      return
+    }
+
+    setCalendarCreating(true)
+
+    try {
+      const duration = calendarEvent.durationMinutes || 60
+
+      const startDate = new Date(
+        `${calendarEvent.date}T${calendarEvent.startTime}:00`
+      )
+
+      const endDate = new Date(
+        startDate.getTime() + duration * 60 * 1000
+      )
+
+      const r = await fetch('/api/google/calendar/events', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          summary: calendarEvent.title || 'Career Event',
+          description: calendarEvent.description || '',
+          location: calendarEvent.location || '',
+          start: {
+            dateTime: startDate.toISOString(),
+          },
+          end: {
+            dateTime: endDate.toISOString(),
+          },
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(
+          data.error || 'Failed to add event to Google Calendar'
+        )
+      }
+
+      console.log('GOOGLE CALENDAR EVENT CREATED:', data)
+
+      toast.success('Added to Google Calendar')
+
+      setCalendarEvent({
+        ...calendarEvent,
+        addedToCalendar: true,
+      })
+
+    } catch (error) {
+      console.error('ADD TO CALENDAR ERROR:', error)
+      toast.error(
+        error.message || 'Failed to add event to Google Calendar'
+      )
+    } finally {
+      setCalendarCreating(false)
+    }
+  }
+
+  async function generateDraft(message) {
+    setSelected(message)
+    setDraftLoading(true)
+    setDraft(null)
+
+    try {
+      const r = await fetch('/api/google/gmail/draft', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: message.from || '',
+          to: message.to || '',
+          subject: message.subject || '',
+          emailText: message.text || message.snippet || '',
+          instruction:
+            instruction ||
+            'Write a professional and interested reply. Ask for the next steps if appropriate.',
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to generate draft')
+      }
+
+      console.log('DRAFT RESPONSE:', data)
+
+      const newDraft = {
+        to: message.from || data.to || '',
+        subject: data.subject || '',
+        body: data.body || '',
+        threadId: message.threadId || '',
+        inReplyTo: message.messageId || '',
+        references: message.messageId || '',
+      }
+
+      console.log('SETTING DRAFT:', newDraft)
+
+      setDraft({
+        to: newDraft.to,
+        subject: newDraft.subject,
+        body: newDraft.body,
+        threadId: newDraft.threadId,
+        inReplyTo: newDraft.inReplyTo,
+        references: newDraft.references,
+      })
+
+
+    } catch (e) {
+      console.error('GMAIL DRAFT FETCH ERROR:', e)
+
+      toast.error(
+        e instanceof TypeError
+          ? 'Could not connect to Veyra server. Check that npm run dev is running.'
+          : e.message
+      )
+    } finally {
+      setDraftLoading(false)
+    }
+  }
+
+  async function sendDraft(draftToSend = draft) {
+    if (!draftToSend?.to || !draftToSend?.subject || !draftToSend?.body) {
+      toast.error('Recipient, subject and body are required')
+      return false
+    }
+
+    setSendLoading(true)
+
+    try {
+      const r = await fetch('/api/google/gmail/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: draftToSend.to,
+          subject: draftToSend.subject,
+          body: draftToSend.body,
+          threadId: draftToSend.threadId || '',
+          inReplyTo: draftToSend.inReplyTo || '',
+          references: draftToSend.references || '',
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to send email')
+      }
+
+      console.log('GMAIL SEND RESPONSE:', data)
+
+      toast.success('Email sent successfully')
+
+      setDraft(null)
+      setSelected(null)
+      setInstruction('')
+
+      await load()
+
+      return true
+    } catch (e) {
+      console.error('GMAIL SEND ERROR:', e)
+      toast.error(e.message || 'Failed to send email')
+      return false
+    } finally {
+      setSendLoading(false)
+    }
+
+  }
+
+
+if (!connected) {
+    return (
+      <ConnectGooglePrompt
+        title="Connect Gmail"
+        desc="Sign in with Google to see recruiter emails, interview invites, and application updates."
+      />
+    )
+  }
+
   return (
     <div className="space-y-6">
+
+      {/* HEADER */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold">Gmail · Recruiter Inbox</h1>
-          <p className="text-white/50 mt-1 text-sm">AI-filtered career emails from your Gmail.</p>
+          <h1 className="text-3xl font-bold">
+            Gmail · Recruiter Inbox
+          </h1>
+
+          <p className="text-white/50 mt-1 text-sm">
+            AI-filtered career emails from your Gmail.
+          </p>
         </div>
-        <Button onClick={load} disabled={loading} variant="outline" className="border-white/10 bg-white/5 text-white h-10">
-          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+
+        <Button
+  onClick={() => setShowCompose(true)}
+  className="bg-white text-black hover:bg-white/90 h-10"
+>
+  <Plus className="w-4 h-4 mr-2" />
+  New Email
+</Button>
+
+        <Button
+          onClick={load}
+          disabled={loading}
+          variant="outline"
+          className="border-white/10 bg-white/5 text-white h-10"
+        >
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <RefreshCw className="w-4 h-4" />
+          )}
         </Button>
       </div>
-      <div className="flex gap-2">
-        <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Gmail search query" className="bg-black/40 border-white/10" />
-        <Button onClick={load} className="bg-white text-black">Search</Button>
-      </div>
-      {loading && <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div>}
-      <div className="space-y-2">
-        {messages.map(m => (
-          <div key={m.id} className="glass rounded-lg p-4 hover:bg-white/[0.04] transition">
-            <div className="flex items-start justify-between gap-3 mb-1">
-              <div className="font-medium text-sm truncate flex-1">{m.subject || '(no subject)'}</div>
-              <div className="text-[11px] text-white/40 shrink-0">{m.date ? new Date(m.date).toLocaleDateString() : ''}</div>
+
+            {/* NEW EMAIL */}
+            {showCompose && (
+        <div className="glass rounded-2xl p-5 space-y-5 border border-white/10">
+
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5" />
+
+                <h2 className="text-lg font-semibold">
+                  AI New Email
+                </h2>
+              </div>
+
+              <p className="text-xs text-white/40 mt-1">
+                Tell Veyra what you want to say and it will compose and send the email.
+              </p>
             </div>
-            <div className="text-xs text-white/50 mb-2 truncate">{m.from}</div>
-            <div className="text-sm text-white/70 line-clamp-3">{m.snippet}</div>
+
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowCompose(false)
+                setComposeTo('')
+                setComposeInstruction('')
+              }}
+              className="text-white/50"
+            >
+              Close
+            </Button>
           </div>
-        ))}
-        {!loading && messages.length === 0 && <div className="text-sm text-white/40 text-center py-8">No emails match this query.</div>}
+
+          {/* RECIPIENT */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              To
+            </label>
+
+            <Input
+              value={composeTo}
+              onChange={e => setComposeTo(e.target.value)}
+              placeholder="recipient@example.com"
+              className="bg-black/40 border-white/10"
+            />
+          </div>
+
+                    {/* SUBJECT */}
+                    <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              Subject
+            </label>
+
+            <Input
+              value={composeSubject}
+              onChange={e => setComposeSubject(e.target.value)}
+              placeholder="e.g. Interview Follow-up"
+              className="bg-black/40 border-white/10"
+            />
+          </div>
+
+
+          {/* AI INSTRUCTION */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              What should Veyra say?
+            </label>
+
+            <textarea
+              value={composeInstruction}
+              onChange={e => setComposeInstruction(e.target.value)}
+              placeholder="Example: Ask Rahul about the status of my interview and politely request an update."
+              className="bg-black/40 border-white/10"
+              rows={6}
+
+
+            />
+          </div>
+
+          {/* SEND */}
+          <div className="flex justify-end">
+            <Button
+              onClick={composeAndSend}
+              disabled={
+                composeLoading ||
+!composeTo.trim() ||
+!composeSubject.trim() ||
+!composeInstruction.trim()
+              }
+              className="bg-white text-black hover:bg-white/90"
+            >
+              {composeLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  AI Writing...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  AI Compose
+                </>
+              )}
+            </Button>
+          </div>
+
+        </div>
+      )}
+      {/* NEW EMAIL REVIEW */}
+      {draft?.isNewEmail && (
+  <div
+    ref={reviewRef}
+    className="mt-4 glass rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.04] p-6 space-y-6"
+  >
+
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-emerald-300" />
+
+                <h2 className="text-lg font-semibold">
+                  Review New Email
+                </h2>
+              </div>
+
+              <p className="text-xs text-white/40 mt-1">
+                Veyra composed this email. Review or edit it before sending.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setDraft(null)
+              }}
+              className="text-white/50 hover:text-white"
+            >
+              Close
+            </Button>
+          </div>
+
+          {/* TO */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              To
+            </label>
+
+            <Input
+              value={draft.to || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  to: e.target.value,
+                })
+              }
+              className="bg-black/40 border-white/10 text-white"
+            />
+          </div>
+
+          {/* SUBJECT */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              Subject
+            </label>
+
+            <Input
+              value={draft.subject || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  subject: e.target.value,
+                })
+              }
+              className="bg-black/40 border-white/10 text-white"
+            />
+          </div>
+
+          {/* MESSAGE */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              Message
+            </label>
+
+            <textarea
+              value={draft.body || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  body: e.target.value,
+                })
+              }
+              rows={12}
+              className="
+                w-full
+                rounded-lg
+                border
+                border-white/10
+                bg-black/40
+                px-4
+                py-3
+                text-sm
+                text-white
+                outline-none
+                resize-y
+                focus:border-emerald-400/30
+              "
+            />
+          </div>
+
+          {/* ACTIONS */}
+          <div className="flex items-center justify-end gap-3">
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDraft(null)
+              }}
+              disabled={sendLoading}
+              className="border-white/10 bg-white/5 text-white"
+            >
+              Discard
+            </Button>
+
+            <Button
+              type="button"
+              onClick={() => sendDraft(draft)}
+              disabled={
+                sendLoading ||
+                !draft.to?.trim() ||
+                !draft.subject?.trim() ||
+                !draft.body?.trim()
+              }
+              className="bg-white text-black hover:bg-white/90"
+            >
+              {sendLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Send Email
+                </>
+              )}
+            </Button>
+
+          </div>
+
+        </div>
+      )}
+
+
+      {/* SEARCH */}
+      <div className="flex gap-2">
+        <Input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Gmail search query"
+          className="bg-black/40 border-white/10"
+        />
+
+        <Button
+          onClick={load}
+          className="bg-white text-black"
+        >
+          Search
+        </Button>
       </div>
+
+      {/* AI INSTRUCTION */}
+      <div className="glass rounded-xl p-4 space-y-3">
+        <div>
+          <div className="text-sm font-medium">
+            AI reply preference
+          </div>
+
+          <div className="text-xs text-white/40 mt-1">
+            Optional instruction for how Veyra should write replies.
+          </div>
+        </div>
+
+        <Input
+          value={instruction}
+          onChange={e => setInstruction(e.target.value)}
+          placeholder="e.g. Keep it short and ask about interview availability"
+          className="bg-black/40 border-white/10"
+        />
+      </div>
+
+      {/* LOADING */}
+      {loading && (
+        <div className="flex justify-center p-8">
+          <Loader2 className="w-6 h-6 animate-spin text-white/50" />
+        </div>
+      )}
+
+      {/* EMAIL LIST / EMAIL READER */}
+
+{selected ? (
+  <div className="glass rounded-2xl border border-white/10 overflow-hidden">
+
+    {/* READER HEADER */}
+    <div className="p-5 border-b border-white/10">
+
+      <div className="flex items-center justify-between gap-3 mb-5">
+
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setSelected(null)}
+          className="border-white/10 bg-white/5 text-white"
+        >
+          ← Back to Inbox
+        </Button>
+        <Button
+  type="button"
+  onClick={() => detectCalendarEvent(selected)}
+  disabled={calendarLoading}
+  variant="outline"
+  className="border-white/10 bg-white/5 text-white"
+>
+  {calendarLoading ? (
+    <>
+      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+      Detecting...
+    </>
+  ) : (
+    <>
+      <CalendarDays className="w-4 h-4 mr-2" />
+      Detect Calendar Event
+    </>
+  )}
+</Button>
+        <Button
+          type="button"
+          onClick={() => generateDraft(selected)}
+          disabled={draftLoading}
+          className="bg-white text-black hover:bg-white/90"
+        >
+          {draftLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Drafting...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4 mr-2" />
+              AI Reply & Send
+            </>
+          )}
+        </Button>
+
+      </div>
+
+      {/* SUBJECT */}
+      <h1 className="text-2xl font-semibold leading-tight">
+        {selected.subject || '(no subject)'}
+      </h1>
+
+      {/* FROM */}
+      <div className="mt-5 flex items-start gap-3">
+
+        <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+          <span className="text-sm font-semibold">
+            {(selected.from || '?')
+              .replace(/<.*?>/g, '')
+              .trim()
+              .charAt(0)
+              .toUpperCase()}
+          </span>
+        </div>
+
+        <div className="min-w-0">
+
+          <div className="text-sm font-medium break-all">
+            {selected.from || 'Unknown sender'}
+          </div>
+
+          {selected.to && (
+            <div className="text-xs text-white/40 mt-1 break-all">
+              To: {selected.to}
+            </div>
+          )}
+
+          {selected.date && (
+            <div className="text-xs text-white/40 mt-1">
+              {new Date(selected.date).toLocaleString()}
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+    </div>
+
+    {/* EMAIL BODY */}
+    <div className="p-6">
+
+      <div className="
+        whitespace-pre-wrap
+        break-words
+        text-sm
+        leading-7
+        text-white/80
+        max-w-4xl
+      ">
+        {selected.text || selected.snippet || 'No email content available.'}
+      </div>
+
+    </div>
+    {calendarEvent && (
+  <div className="mx-6 mb-6 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-5">
+
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-emerald-300" />
+
+          <h3 className="font-semibold">
+            Calendar event detected
+          </h3>
+        </div>
+
+        <p className="text-xs text-white/40 mt-1">
+          Veyra found a career event in this email.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setCalendarEvent(null)}
+        className="text-white/40 hover:text-white"
+      >
+        ×
+      </button>
+    </div>
+
+    <div className="mt-5 space-y-3">
+
+      <div className="text-lg font-semibold">
+        {calendarEvent.title || 'Career Event'}
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3 text-sm">
+
+        {calendarEvent.date && (
+          <div className="rounded-lg bg-black/20 p-3">
+            <div className="text-xs text-white/40">
+              Date
+            </div>
+            <div className="mt-1">
+              {new Date(
+                `${calendarEvent.date}T00:00:00`
+              ).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </div>
+          </div>
+        )}
+
+        {calendarEvent.startTime && (
+          <div className="rounded-lg bg-black/20 p-3">
+            <div className="text-xs text-white/40">
+              Time
+            </div>
+            <div className="mt-1">
+              {calendarEvent.startTime}
+            </div>
+          </div>
+        )}
+
+        {calendarEvent.location && (
+          <div className="rounded-lg bg-black/20 p-3 sm:col-span-2">
+            <div className="text-xs text-white/40">
+              Location
+            </div>
+            <div className="mt-1">
+              {calendarEvent.location}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {calendarEvent.description && (
+        <p className="text-sm text-white/60 leading-6">
+          {calendarEvent.description}
+        </p>
+      )}
+
+      <div className="flex justify-end pt-2">
+      <Button
+  type="button"
+  onClick={addDetectedEventToCalendar}
+  disabled={calendarCreating || calendarEvent.addedToCalendar}
+  className="bg-white text-black hover:bg-white/90"
+>
+  {calendarCreating ? (
+    <>
+      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+      Adding...
+    </>
+  ) : calendarEvent.addedToCalendar ? (
+    <>
+      <CalendarDays className="w-4 h-4 mr-2" />
+      Added to Calendar
+    </>
+  ) : (
+    <>
+      <CalendarDays className="w-4 h-4 mr-2" />
+      Add to Google Calendar
+    </>
+  )}
+</Button>
+      </div>
+
+    </div>
+  </div>
+)}
+
+  </div>
+
+
+) : (
+
+  <div className="space-y-2">
+
+    {messages.map(message => (
+
+      <div
+        key={message.id}
+        onClick={() => {
+          setSelected(message)
+          detectCalendarEvent(message)
+        }}
+        className="
+          glass
+          rounded-xl
+          p-4
+          hover:bg-white/[0.06]
+          transition
+          cursor-pointer
+          border
+          border-transparent
+          hover:border-white/10
+        "
+      >
+
+        <div className="flex items-start justify-between gap-3">
+
+          <div className="min-w-0 flex-1">
+
+            <div className="flex items-center gap-2">
+
+              <div className="font-medium text-sm truncate">
+                {message.subject || '(no subject)'}
+              </div>
+
+              {message.threadId && (
+                <span className="text-[10px] text-white/30 shrink-0">
+                  Thread
+                </span>
+              )}
+
+            </div>
+
+            <div className="text-xs text-white/50 mt-1 truncate">
+              {message.from}
+            </div>
+
+            <div className="text-sm text-white/60 mt-2 line-clamp-2">
+              {message.snippet}
+            </div>
+
+            <div className="text-[11px] text-white/30 mt-2">
+              {message.date
+                ? new Date(message.date).toLocaleDateString()
+                : ''}
+            </div>
+
+          </div>
+
+          {/* AI REPLY BUTTON */}
+          <Button
+            onClick={(e) => {
+              e.stopPropagation()
+              generateDraft(message)
+            }}
+            disabled={
+              draftLoading &&
+              selected?.id === message.id
+            }
+            className="
+              shrink-0
+              bg-white
+              text-black
+              hover:bg-white/90
+            "
+          >
+
+            {draftLoading &&
+            selected?.id === message.id ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Drafting...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 mr-2" />
+                AI Reply & Send
+              </>
+            )}
+
+          </Button>
+
+        </div>
+
+      </div>
+
+    ))}
+
+    {!loading && messages.length === 0 && (
+      <div className="text-sm text-white/40 text-center py-8">
+        No emails match this query.
+      </div>
+    )}
+
+  </div>
+
+)}
+
+                      {/* AI DRAFT / REVIEW */}
+                      {draft && !draft.isNewEmail && (
+        <div className="mt-4 glass rounded-2xl border border-white/10 bg-white/[0.03] p-6 space-y-6">
+
+          {/* HEADER */}
+          <div className="flex items-start justify-between gap-4">
+
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-white" />
+
+                <h2 className="text-lg font-semibold">
+                  {draft.isNewEmail ? 'Review New Email' : 'AI Reply Draft'}
+                </h2>
+              </div>
+
+              <p className="text-xs text-white/40 mt-1">
+                {draft.isNewEmail
+                  ? 'Veyra composed this email. Review or edit it before sending.'
+                  : 'Veyra generated this reply. Review or edit it before sending.'}
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDraft(null)}
+              className="text-white/50 hover:text-white"
+            >
+              Close Draft
+            </Button>
+
+          </div>
+
+          {/* TO */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              To
+            </label>
+
+            <Input
+              value={draft.to || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  to: e.target.value,
+                })
+              }
+              className="bg-black/40 border-white/10 text-white"
+            />
+          </div>
+
+          {/* SUBJECT */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              Subject
+            </label>
+
+            <Input
+              value={draft.subject || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  subject: e.target.value,
+                })
+              }
+              className="bg-black/40 border-white/10 text-white"
+            />
+          </div>
+
+          {/* MESSAGE */}
+          <div className="space-y-2">
+            <label className="text-xs text-white/50">
+              Message
+            </label>
+
+            <textarea
+              value={draft.body || ''}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  body: e.target.value,
+                })
+              }
+              rows={12}
+              className="
+                w-full
+                rounded-lg
+                border
+                border-white/10
+                bg-black/40
+                px-4
+                py-3
+                text-sm
+                text-white
+                outline-none
+                resize-y
+                focus:border-white/20
+              "
+            />
+          </div>
+
+          {/* ACTIONS */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled={draftLoading || sendLoading}
+              onClick={() => {
+                if (selected) {
+                  generateDraft(selected)
+                }
+              }}
+              className="border-white/10 bg-white/5 text-white"
+            >
+              {draftLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Drafting...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Regenerate
+                </>
+              )}
+            </Button>
+
+            <Button
+              type="button"
+              onClick={() => sendDraft(draft)}
+              disabled={
+                sendLoading ||
+                !draft.to ||
+                !draft.subject ||
+                !draft.body
+              }
+              className="bg-white text-black hover:bg-white/90"
+            >
+              {sendLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Send Email
+                </>
+              )}
+            </Button>
+
+          </div>
+
+        </div>
+      )}
+
     </div>
   )
 }
@@ -741,83 +1975,708 @@ function CalendarTab({ connected }) {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ summary: '', description: '', start: '', end: '', location: '' })
+
+  const [showAI, setShowAI] = useState(false)
+  const [aiInstruction, setAIInstruction] = useState('')
+  const [aiLoading, setAILoading] = useState(false)
+  const [aiEvent, setAIEvent] = useState(null)
+
+  const [form, setForm] = useState({
+    summary: '',
+    description: '',
+    start: '',
+    end: '',
+    location: '',
+  })
+
   async function load() {
     setLoading(true)
+
     try {
       const r = await fetch('/api/google/calendar')
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || 'Failed')
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to load Calendar')
+      }
+
       setEvents(data.events || [])
-    } catch (e) { toast.error(e.message) }
-    finally { setLoading(false) }
+    } catch (e) {
+      console.error('CALENDAR LOAD ERROR:', e)
+      toast.error(e.message || 'Failed to load Calendar')
+    } finally {
+      setLoading(false)
+    }
   }
-  useEffect(() => { if (connected) load() }, [connected])
+
+  useEffect(() => {
+    if (connected) {
+      load()
+    }
+  }, [connected])
+
   async function addEvent(e) {
     e.preventDefault()
-    if (!form.summary || !form.start || !form.end) return toast.error('Fill title, start, end')
-    const body = {
-      summary: form.summary, description: form.description, location: form.location,
-      start: { dateTime: new Date(form.start).toISOString() },
-      end: { dateTime: new Date(form.end).toISOString() },
+
+    if (!form.summary.trim()) {
+      return toast.error('Enter event title')
     }
-    const r = await fetch('/api/google/calendar/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    if (r.ok) { toast.success('Event created'); setShowAdd(false); setForm({ summary: '', description: '', start: '', end: '', location: '' }); load() }
-    else { toast.error('Failed to create event') }
+
+    if (!form.start || !form.end) {
+      return toast.error('Select start and end time')
+    }
+
+    const startDate = new Date(form.start)
+    const endDate = new Date(form.end)
+
+    if (
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime())
+    ) {
+      return toast.error('Invalid date or time')
+    }
+
+    if (endDate <= startDate) {
+      return toast.error('End time must be after start time')
+    }
+
+    setLoading(true)
+
+    try {
+      const body = {
+        summary: form.summary.trim(),
+        description: form.description.trim(),
+        location: form.location.trim(),
+        start: {
+          dateTime: startDate.toISOString(),
+        },
+        end: {
+          dateTime: endDate.toISOString(),
+        },
+      }
+
+      const r = await fetch('/api/google/calendar/events', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to create event')
+      }
+
+      toast.success('Event created in Google Calendar')
+
+      setShowAdd(false)
+
+      setForm({
+        summary: '',
+        description: '',
+        start: '',
+        end: '',
+        location: '',
+      })
+
+      await load()
+    } catch (error) {
+      console.error('CALENDAR CREATE ERROR:', error)
+      toast.error(error.message || 'Failed to create event')
+    } finally {
+      setLoading(false)
+    }
   }
-  if (!connected) return <ConnectGooglePrompt title="Connect Calendar" desc="See interviews, meetings, and deadlines. Create events straight from Veyra." />
+
+  async function createAIEvent() {
+    if (!aiInstruction.trim()) {
+      return toast.error('Tell Veyra what event to create')
+    }
+
+    setAILoading(true)
+
+    try {
+      // STEP 1: Ask AI to understand the instruction
+      const aiResponse = await fetch('/api/ai/calendar-create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          instruction: aiInstruction.trim(),
+        }),
+      })
+
+      const data = await aiResponse.json()
+
+      if (!aiResponse.ok) {
+        throw new Error(
+          data.error || 'Failed to understand the event'
+        )
+      }
+
+      console.log('AI CALENDAR EVENT:', data)
+
+      // STEP 2: Validate AI result
+      if (!data.title || !data.date || !data.startTime) {
+        throw new Error(
+          'Veyra could not determine the event title, date, or time'
+        )
+      }
+
+      // STEP 3: Calculate start time
+      const startDate = new Date(
+        `${data.date}T${data.startTime}:00`
+      )
+
+      if (Number.isNaN(startDate.getTime())) {
+        throw new Error('Veyra generated an invalid date or time')
+      }
+
+      // STEP 4: Calculate end time
+      const durationMinutes =
+        Number(data.durationMinutes) > 0
+          ? Number(data.durationMinutes)
+          : 60
+
+      const endDate = new Date(
+        startDate.getTime() +
+          durationMinutes * 60 * 1000
+      )
+
+      // STEP 5: Send the AI-generated event to Google Calendar
+      const calendarResponse = await fetch(
+        '/api/google/calendar/events',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            summary: data.title,
+            description: data.description || '',
+            location: data.location || '',
+            start: {
+              dateTime: startDate.toISOString(),
+            },
+            end: {
+              dateTime: endDate.toISOString(),
+            },
+          }),
+        }
+      )
+
+      const calendarData = await calendarResponse.json()
+
+      if (!calendarResponse.ok) {
+        throw new Error(
+          calendarData.error ||
+            'Failed to save event to Google Calendar'
+        )
+      }
+
+      console.log(
+        'GOOGLE CALENDAR EVENT CREATED:',
+        calendarData.event
+      )
+
+      // STEP 6: Update UI
+      setAIEvent({
+        ...data,
+        googleEvent: calendarData.event,
+      })
+
+      setAIInstruction('')
+      setShowAI(false)
+
+      toast.success(
+        'AI event added to Google Calendar'
+      )
+
+      // STEP 7: Refresh Calendar
+      await load()
+
+    } catch (error) {
+      console.error(
+        'AI CALENDAR ERROR:',
+        error
+      )
+
+      toast.error(
+        error.message ||
+          'Failed to create event with AI'
+      )
+    } finally {
+      setAILoading(false)
+    }
+  }
+
+  if (!connected) {
+    return (
+      <ConnectGooglePrompt
+        title="Connect Calendar"
+        desc="See interviews, meetings, and deadlines. Create events straight from Veyra."
+      />
+    )
+  }
+
   return (
     <div className="space-y-6">
+
+      {/* HEADER */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
+
         <div>
-          <h1 className="text-3xl font-bold">Calendar</h1>
-          <p className="text-white/50 mt-1 text-sm">Your upcoming events from Google Calendar.</p>
+          <h1 className="text-3xl font-bold">
+            Calendar
+          </h1>
+
+          <p className="text-white/50 mt-1 text-sm">
+            Your upcoming events from Google Calendar.
+          </p>
         </div>
+
         <div className="flex gap-2">
-          <Button onClick={() => setShowAdd(v => !v)} className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white">
-            <Plus className="w-4 h-4 mr-1" /> New event
+
+          <Button
+            type="button"
+            onClick={() => setShowAI(v => !v)}
+            className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white"
+          >
+            <Sparkles className="w-4 h-4 mr-1" />
+            AI Create Event
           </Button>
-          <Button onClick={load} variant="outline" className="border-white/10 bg-white/5 text-white"><RefreshCw className="w-4 h-4" /></Button>
+
+          <Button
+            type="button"
+            onClick={() => setShowAdd(v => !v)}
+            className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white"
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            New event
+          </Button>
+
+          <Button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            variant="outline"
+            className="border-white/10 bg-white/5 text-white"
+          >
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+          </Button>
+
         </div>
       </div>
-      {showAdd && (
-        <form onSubmit={addEvent} className="glass rounded-2xl p-5 space-y-3">
-          <div className="grid md:grid-cols-2 gap-3">
-            <Field label="Title"><Input value={form.summary} onChange={e => setForm(f => ({ ...f, summary: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Location"><Input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Start"><Input type="datetime-local" value={form.start} onChange={e => setForm(f => ({ ...f, start: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="End"><Input type="datetime-local" value={form.end} onChange={e => setForm(f => ({ ...f, end: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
+
+      {/* AI CREATE EVENT */}
+      {showAI && (
+        <div className="glass rounded-2xl p-5 space-y-4 border border-white/10">
+
+          <div className="flex items-start justify-between gap-3">
+
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-white" />
+
+                <h2 className="text-lg font-semibold">
+                  AI Create Event
+                </h2>
+              </div>
+
+              <p className="text-xs text-white/40 mt-1">
+                Tell Veyra what you want to schedule in natural language.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowAI(false)}
+              className="text-white/50"
+            >
+              Close
+            </Button>
+
           </div>
-          <Field label="Description"><Textarea rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
-          <Button type="submit" className="bg-white text-black hover:bg-white/90"><Plus className="w-4 h-4 mr-1" /> Add to Google Calendar</Button>
+
+          <Textarea
+            rows={4}
+            value={aiInstruction}
+            onChange={e => setAIInstruction(e.target.value)}
+            placeholder="Example: Tomorrow at 3 PM interview with Rahul for 45 minutes on Google Meet."
+            className="bg-black/40 border-white/10 resize-none"
+          />
+
+          <div className="flex justify-end">
+
+            <Button
+              type="button"
+              onClick={createAIEvent}
+              disabled={aiLoading || !aiInstruction.trim()}
+              className="bg-white text-black hover:bg-white/90"
+            >
+              {aiLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Veyra is creating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate Event
+                </>
+              )}
+            </Button>
+
+          </div>
+
+          {/* AI EVENT PREVIEW */}
+          {aiEvent && (
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4 space-y-3">
+
+              <div className="flex items-start justify-between gap-3">
+
+                <div>
+                  <div className="text-lg font-semibold">
+                    {aiEvent.title}
+                  </div>
+
+                  <div className="text-sm text-white/50 mt-1">
+                    {aiEvent.date} · {aiEvent.startTime}
+                  </div>
+                </div>
+
+                <Sparkles className="w-5 h-5 text-emerald-300" />
+
+              </div>
+
+              {aiEvent.location && (
+                <div className="text-sm text-white/60">
+                  📍 {aiEvent.location}
+                </div>
+              )}
+
+              {aiEvent.description && (
+                <div className="text-sm text-white/60">
+                  {aiEvent.description}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setAIEvent(null)}
+                  className="border-white/10 bg-white/5 text-white"
+                >
+                  Cancel
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={saveAIEventToCalendar}
+                  disabled={aiLoading}
+                  className="bg-white text-black hover:bg-white/90"
+                >
+                  {aiLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <CalendarDays className="w-4 h-4 mr-2" />
+                      Add to Google Calendar
+                    </>
+                  )}
+                </Button>
+
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* CREATE EVENT */}
+      {showAdd && (
+        <form
+          onSubmit={addEvent}
+          className="glass rounded-2xl p-5 space-y-4 border border-white/10"
+        >
+
+          <div className="flex items-center justify-between">
+
+            <div>
+              <h2 className="text-lg font-semibold">
+                New Calendar Event
+              </h2>
+
+              <p className="text-xs text-white/40 mt-1">
+                Create an event directly in Google Calendar.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setShowAdd(false)}
+              className="text-white/50"
+            >
+              Close
+            </Button>
+
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+
+            <Field label="Title">
+              <Input
+                value={form.summary}
+                onChange={e =>
+                  setForm(f => ({
+                    ...f,
+                    summary: e.target.value,
+                  }))
+                }
+                placeholder="Interview with Google"
+                className="bg-black/40 border-white/10"
+              />
+            </Field>
+
+            <Field label="Location">
+              <Input
+                value={form.location}
+                onChange={e =>
+                  setForm(f => ({
+                    ...f,
+                    location: e.target.value,
+                  }))
+                }
+                placeholder="Google Meet / Office"
+                className="bg-black/40 border-white/10"
+              />
+            </Field>
+
+            <Field label="Start">
+              <Input
+                type="datetime-local"
+                value={form.start}
+                onChange={e =>
+                  setForm(f => ({
+                    ...f,
+                    start: e.target.value,
+                    end:
+                      f.end &&
+                      e.target.value &&
+                      f.end < e.target.value
+                        ? ''
+                        : f.end,
+                  }))
+                }
+                className="bg-black/40 border-white/10"
+              />
+            </Field>
+
+            <Field label="End">
+              <Input
+                type="datetime-local"
+                value={form.end}
+                min={form.start || undefined}
+                onChange={e =>
+                  setForm(f => ({
+                    ...f,
+                    end: e.target.value,
+                  }))
+                }
+                className="bg-black/40 border-white/10"
+              />
+            </Field>
+
+          </div>
+
+          <Field label="Description">
+            <Textarea
+              rows={3}
+              value={form.description}
+              onChange={e =>
+                setForm(f => ({
+                  ...f,
+                  description: e.target.value,
+                }))
+              }
+              placeholder="Interview details, preparation notes, meeting agenda..."
+              className="bg-black/40 border-white/10 resize-none"
+            />
+          </Field>
+
+          <div className="flex justify-end gap-2">
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowAdd(false)}
+              className="border-white/10 bg-white/5 text-white"
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="submit"
+              disabled={
+                loading ||
+                !form.summary.trim() ||
+                !form.start ||
+                !form.end
+              }
+              className="bg-white text-black hover:bg-white/90"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add to Google Calendar
+                </>
+              )}
+            </Button>
+
+          </div>
+
         </form>
       )}
-      {loading && <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div>}
+
+      {/* LOADING */}
+      {loading && !showAdd && (
+        <div className="flex justify-center p-8">
+          <Loader2 className="w-6 h-6 animate-spin text-white/50" />
+        </div>
+      )}
+
+      {/* EVENTS */}
+      {!loading && events.length === 0 && (
+        <div className="glass rounded-2xl p-10 text-center border border-white/10">
+          <div className="text-4xl mb-3">📅</div>
+
+          <div className="font-medium">
+            No upcoming events
+          </div>
+
+          <div className="text-sm text-white/40 mt-1">
+            Your upcoming Google Calendar events will appear here.
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
+
         {events.map(ev => {
           const start = ev.start?.dateTime || ev.start?.date
-          const d = start ? new Date(start) : null
+          const end = ev.end?.dateTime || ev.end?.date
+
+          const startDate = start ? new Date(start) : null
+          const endDate = end ? new Date(end) : null
+
           return (
-            <div key={ev.id} className="glass rounded-lg p-4 flex items-start gap-4 hover:bg-white/[0.04] transition">
+            <div
+              key={ev.id}
+              className="glass rounded-xl p-4 flex items-start gap-4 hover:bg-white/[0.04] transition border border-transparent hover:border-white/10"
+            >
+
               <div className="w-16 shrink-0 text-center">
-                <div className="text-xs text-white/50 uppercase">{d ? d.toLocaleDateString('en', { month: 'short' }) : ''}</div>
-                <div className="text-2xl font-bold">{d ? d.getDate() : '?'}</div>
-                <div className="text-[10px] text-white/40">{d ? d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+
+                <div className="text-xs text-white/50 uppercase">
+                  {startDate
+                    ? startDate.toLocaleDateString('en', {
+                        month: 'short',
+                      })
+                    : ''}
+                </div>
+
+                <div className="text-2xl font-bold">
+                  {startDate ? startDate.getDate() : '?'}
+                </div>
+
+                <div className="text-[10px] text-white/40">
+                  {startDate
+                    ? startDate.toLocaleTimeString('en', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : ''}
+                </div>
+
               </div>
+
               <div className="flex-1 min-w-0">
-                <div className="font-medium">{ev.summary || '(no title)'}</div>
-                {ev.location && <div className="text-xs text-white/50 mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" />{ev.location}</div>}
-                {ev.description && <div className="text-xs text-white/60 mt-1 line-clamp-2">{ev.description}</div>}
+
+                <div className="font-medium">
+                  {ev.summary || '(no title)'}
+                </div>
+
+                {ev.location && (
+                  <div className="text-xs text-white/50 mt-1 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    {ev.location}
+                  </div>
+                )}
+
+                {startDate && endDate && (
+                  <div className="text-xs text-white/40 mt-1">
+                    {startDate.toLocaleString([], {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    })}
+                    {' → '}
+                    {endDate.toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </div>
+                )}
+
+                {ev.description && (
+                  <div className="text-xs text-white/60 mt-2 line-clamp-2">
+                    {ev.description}
+                  </div>
+                )}
+
               </div>
-              {ev.htmlLink && <a href={ev.htmlLink} target="_blank" rel="noopener noreferrer" className="text-white/40 hover:text-white"><ExternalLink className="w-4 h-4" /></a>}
+
+              {ev.htmlLink && (
+                <a
+                  href={ev.htmlLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/40 hover:text-white transition"
+                  title="Open in Google Calendar"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
+
             </div>
           )
         })}
-        {!loading && events.length === 0 && <div className="text-sm text-white/40 text-center py-8">No upcoming events.</div>}
+
       </div>
+
     </div>
   )
 }
+
 
 // ---------- DRIVE ----------
 function DriveTab({ connected }) {
@@ -866,10 +2725,33 @@ function ConnectGooglePrompt({ title, desc }) {
   return (
     <div className="glass rounded-2xl p-10 text-center max-w-md mx-auto mt-16">
       <Cloud className="w-12 h-12 mx-auto text-emerald-400 mb-4" />
-      <h2 className="text-xl font-bold mb-2">{title}</h2>
-      <p className="text-sm text-white/50 mb-6">{desc}</p>
-      <a href="/api/auth/google">
-        <Button className="bg-white text-black hover:bg-white/90">Connect Google</Button>
+
+      <h2 className="text-xl font-bold mb-2">
+        {title}
+      </h2>
+
+      <p className="text-sm text-white/50 mb-6">
+        {desc}
+      </p>
+
+      <a
+        href="/api/auth/google"
+        className="
+          inline-flex
+          items-center
+          justify-center
+          h-10
+          px-5
+          rounded-lg
+          bg-white
+          text-black
+          font-medium
+          cursor-pointer
+          hover:bg-white/90
+          transition
+        "
+      >
+        Connect Google
       </a>
     </div>
   )
@@ -929,115 +2811,334 @@ const JOB_STAGES = [
 
 function JobsTab() {
   const [jobs, setJobs] = useState([])
+  const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(false)
-  const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ company: '', role: '', location: '', salary: '', jobUrl: '', description: '', notes: '', referral: '', status: 'wishlist' })
+  const [applying, setApplying] = useState(null)
 
   async function load() {
     setLoading(true)
-    const r = await fetch('/api/jobs'); const data = await r.json()
-    setJobs(Array.isArray(data) ? data : []); setLoading(false)
-  }
-  useEffect(() => { load() }, [])
 
-  async function save() {
-    if (!form.company || !form.role) return toast.error('Company and role required')
-    const url = editing ? `/api/jobs/${editing}` : '/api/jobs'
-    const method = editing ? 'PUT' : 'POST'
-    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
-    if (r.ok) { toast.success(editing ? 'Job updated' : 'Job added'); setShowAdd(false); setEditing(null); resetForm(); load() }
-    else toast.error('Save failed')
+    try {
+      const [jobsRes, appsRes] = await Promise.all([
+        fetch('/api/public/jobs'),
+        fetch('/api/applications/student'),
+      ])
+
+      const jobsData = await jobsRes.json()
+      const appsData = await appsRes.json()
+
+      setJobs(Array.isArray(jobsData) ? jobsData : [])
+      setApplications(Array.isArray(appsData) ? appsData : [])
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to load jobs')
+    }
+
+    setLoading(false)
   }
-  function resetForm() { setForm({ company: '', role: '', location: '', salary: '', jobUrl: '', description: '', notes: '', referral: '', status: 'wishlist' }) }
-  function openEdit(j) { setEditing(j.id); setForm({ company: j.company, role: j.role, location: j.location, salary: j.salary, jobUrl: j.jobUrl, description: j.description, notes: j.notes, referral: j.referral, status: j.status }); setShowAdd(true) }
-  async function move(j, newStatus) {
-    await fetch(`/api/jobs/${j.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) })
+
+  useEffect(() => {
     load()
+  }, [])
+
+  async function apply(job) {
+    if (applying) return
+
+    setApplying(job.id)
+
+    try {
+      const r = await fetch('/api/applications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jobId: job.id,
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        toast.error(data.error || 'Application failed')
+        return
+      }
+
+      toast.success('Application submitted')
+      await load()
+    } catch (e) {
+      console.error(e)
+      toast.error('Application failed')
+    } finally {
+      setApplying(null)
+    }
   }
-  async function remove(id) {
-    if (!confirm('Delete this job?')) return
-    await fetch(`/api/jobs/${id}`, { method: 'DELETE' }); load()
+
+  function applicationFor(jobId) {
+    return applications.find(a => a.jobId === jobId)
   }
-  async function computeMatch(j) {
-    toast.info('Computing AI match...')
-    const r = await fetch('/api/ai/job-match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId: j.id, company: j.company, role: j.role, description: j.description }) })
-    if (r.ok) { toast.success('Match computed'); load() }
+
+  function trackerStatus(status) {
+    const map = {
+      Applied: 'applied',
+      Screening: 'assessment',
+      Shortlisted: 'assessment',
+      Interview: 'interview',
+      Offer: 'offer',
+      Hired: 'accepted',
+      Rejected: 'rejected',
+      Withdrawn: 'rejected',
+    }
+
+    return map[status] || 'applied'
   }
+
+  const appliedJobIds = new Set(
+    applications.map(a => a.jobId)
+  )
+
+  const availableJobs = jobs.filter(
+    job => !appliedJobIds.has(job.id)
+  )
+
+  const trackedJobs = applications.map(app => {
+    const job = jobs.find(j => j.id === app.jobId)
+
+    return {
+      ...job,
+      id: app.id,
+      jobId: app.jobId,
+      company: job?.companyName || app.companyName || 'Company',
+      role: job?.title || app.jobTitle || 'Job',
+      location: job?.location || '',
+      description: job?.description || '',
+      matchScore: app.matchScore ?? null,
+      status: trackerStatus(app.status),
+      applicationStatus: app.status,
+    }
+  })
 
   return (
     <div className="space-y-6">
+
+      {/* HEADER */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold">Job Tracker</h1>
-          <p className="text-white/50 mt-1 text-sm">Every application, one board. AI computes match scores automatically.</p>
+          <p className="text-white/50 mt-1 text-sm">
+            Discover company jobs and track your real applications.
+          </p>
         </div>
-        <Button onClick={() => { resetForm(); setEditing(null); setShowAdd(v => !v) }} className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white">
-          <Plus className="w-4 h-4 mr-1" /> New job
+
+        <Button
+          onClick={load}
+          variant="outline"
+          className="border-white/10 bg-white/5"
+        >
+          Refresh
         </Button>
       </div>
-      {showAdd && (
-        <div className="glass rounded-2xl p-5 space-y-3">
-          <div className="grid md:grid-cols-2 gap-3">
-            <Field label="Company"><Input value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Role"><Input value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Location"><Input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Salary range"><Input value={form.salary} onChange={e => setForm(f => ({ ...f, salary: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Job URL"><Input value={form.jobUrl} onChange={e => setForm(f => ({ ...f, jobUrl: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Referral"><Input value={form.referral} onChange={e => setForm(f => ({ ...f, referral: e.target.value }))} className="bg-black/40 border-white/10" /></Field>
-            <Field label="Status">
-              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} className="w-full h-10 px-3 rounded-md bg-black/40 border border-white/10 text-sm">
-                {JOB_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
-            </Field>
-          </div>
-          <Field label="Job description"><Textarea rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
-          <Field label="Notes"><Textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="bg-black/40 border-white/10 resize-none" /></Field>
-          <div className="flex gap-2">
-            <Button onClick={save} className="bg-white text-black hover:bg-white/90">{editing ? 'Update' : 'Add job'}</Button>
-            <Button onClick={() => { setShowAdd(false); setEditing(null); resetForm() }} variant="outline" className="border-white/10 bg-white/5">Cancel</Button>
-          </div>
+
+      {/* COMPANY JOBS */}
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Jobs from companies</h2>
+          <p className="text-xs text-white/40 mt-1">
+            Jobs published directly by companies on ProCareerAI.
+          </p>
         </div>
-      )}
-      {loading && <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-white/50" /></div>}
-      <div className="overflow-x-auto">
-        <div className="flex gap-3 min-w-max pb-4">
-          {JOB_STAGES.map(stage => {
-            const stageJobs = jobs.filter(j => j.status === stage.key)
-            return (
-              <div key={stage.key} className="w-72 shrink-0">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <div className="text-xs font-semibold uppercase tracking-wider text-white/60">{stage.label}</div>
-                  <Badge className={`bg-gradient-to-r ${stage.color} text-white border-0 text-[10px]`}>{stageJobs.length}</Badge>
+
+        {loading && (
+          <div className="flex justify-center p-8">
+            <Loader2 className="w-6 h-6 animate-spin text-white/50" />
+          </div>
+        )}
+
+        {!loading && availableJobs.length === 0 && (
+          <div className="glass rounded-2xl p-8 text-center">
+            <div className="text-sm text-white/50">
+              No new company jobs available right now.
+            </div>
+          </div>
+        )}
+
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {availableJobs.map(job => (
+            <div
+              key={job.id}
+              className="glass rounded-2xl p-5 hover:bg-white/[0.04] transition"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold">
+                    {job.title}
+                  </div>
+
+                  <div className="text-sm text-white/60 mt-1 flex items-center gap-1">
+                    <Building2 className="w-3.5 h-3.5" />
+                    {job.companyName || 'Company'}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {stageJobs.map(j => (
-                    <div key={j.id} className="glass rounded-xl p-3 hover:bg-white/[0.04] transition group">
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="text-sm font-semibold truncate">{j.role}</div>
-                        {j.matchScore != null && (
-                          <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] shrink-0">{j.matchScore}%</Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-white/60 flex items-center gap-1 truncate"><Building2 className="w-3 h-3" />{j.company}</div>
-                      {j.location && <div className="text-[10px] text-white/40 mt-1 flex items-center gap-1"><MapPin className="w-2.5 h-2.5" />{j.location}</div>}
-                      <div className="flex items-center gap-1 mt-3 pt-2 border-t border-white/5">
-                        <select value={j.status} onChange={e => move(j, e.target.value)} className="text-[10px] bg-transparent border border-white/10 rounded px-1.5 py-0.5 flex-1 text-white/70">
-                          {JOB_STAGES.map(s => <option key={s.key} value={s.key} className="bg-black">{s.label}</option>)}
-                        </select>
-                        <button onClick={() => computeMatch(j)} title="AI Match" className="p-1 text-white/40 hover:text-emerald-400"><Sparkle className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => openEdit(j)} title="Edit" className="p-1 text-white/40 hover:text-white"><Wand2 className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => remove(j.id)} title="Delete" className="p-1 text-white/40 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </div>
-                  ))}
-                  {stageJobs.length === 0 && !loading && (
-                    <div className="text-[11px] text-white/25 text-center py-6 border border-dashed border-white/10 rounded-xl">No jobs</div>
-                  )}
-                </div>
+
+                <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  Hiring
+                </Badge>
               </div>
-            )
-          })}
+
+              <div className="flex flex-wrap gap-2 mt-3">
+                {job.location && (
+                  <span className="text-[11px] text-white/45 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    {job.location}
+                  </span>
+                )}
+
+                {job.employmentType && (
+                  <span className="text-[11px] text-white/45">
+                    {job.employmentType.replace('_', ' ')}
+                  </span>
+                )}
+
+                {job.experience && (
+                  <span className="text-[11px] text-white/45">
+                    {job.experience}
+                  </span>
+                )}
+              </div>
+
+              {job.description && (
+                <p className="text-xs text-white/45 mt-3 line-clamp-3">
+                  {job.description}
+                </p>
+              )}
+
+              {Array.isArray(job.skills) && job.skills.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {job.skills.slice(0, 5).map(skill => (
+                    <span
+                      key={skill}
+                      className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/55 border border-white/5"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
+                <div className="text-[10px] text-white/35">
+                  {job.salaryMin || job.salaryMax
+                    ? `₹${job.salaryMin || 0} - ₹${job.salaryMax || 0}`
+                    : 'Salary not disclosed'}
+                </div>
+
+                <Button
+                  onClick={() => apply(job)}
+                  disabled={applying === job.id}
+                  className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white"
+                >
+                  {applying === job.id ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      Applying...
+                    </>
+                  ) : (
+                    'Apply'
+                  )}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* APPLICATION PIPELINE */}
+      <div className="space-y-3 pt-4">
+        <div>
+          <h2 className="text-lg font-semibold">My applications</h2>
+          <p className="text-xs text-white/40 mt-1">
+            Applications submitted to companies.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <div className="flex gap-3 min-w-max pb-4">
+
+            {JOB_STAGES.map(stage => {
+              const stageJobs = trackedJobs.filter(
+                j => j.status === stage.key
+              )
+
+              return (
+                <div
+                  key={stage.key}
+                  className="w-72 shrink-0"
+                >
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-white/60">
+                      {stage.label}
+                    </div>
+
+                    <Badge
+                      className={`bg-gradient-to-r ${stage.color} text-white border-0 text-[10px]`}
+                    >
+                      {stageJobs.length}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2">
+                    {stageJobs.map(j => (
+                      <div
+                        key={j.id}
+                        className="glass rounded-xl p-3"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div className="text-sm font-semibold truncate">
+                            {j.role}
+                          </div>
+
+                          {j.matchScore != null && (
+                            <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] shrink-0">
+                              {j.matchScore}%
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-white/60 flex items-center gap-1 truncate">
+                          <Building2 className="w-3 h-3" />
+                          {j.company}
+                        </div>
+
+                        {j.location && (
+                          <div className="text-[10px] text-white/40 mt-1 flex items-center gap-1">
+                            <MapPin className="w-2.5 h-2.5" />
+                            {j.location}
+                          </div>
+                        )}
+
+                        <div className="mt-3 pt-2 border-t border-white/5">
+                          <div className="text-[10px] text-white/40">
+                            Application status
+                          </div>
+
+                          <div className="text-xs font-medium text-white/75 mt-1">
+                            {j.applicationStatus}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {stageJobs.length === 0 && !loading && (
+                      <div className="text-[11px] text-white/25 text-center py-6 border border-dashed border-white/10 rounded-xl">
+                        No applications
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+          </div>
         </div>
       </div>
     </div>
