@@ -250,9 +250,18 @@ console.log("STATE FROM GOOGLE:", state)
 console.log("STATE FROM DATABASE:", oauthState?.state)
 
 if (errParam) {
+  const errorDescription =
+    url.searchParams.get('error_description') || errParam
+
+  console.log('GOOGLE OAUTH ERROR:', {
+    error: errParam,
+    error_description: errorDescription,
+    error_uri: url.searchParams.get('error_uri'),
+  })
+
   return NextResponse.redirect(
     new URL(
-      '/?auth_error=' + encodeURIComponent(errParam),
+      '/?auth_error=' + encodeURIComponent(errorDescription),
       request.url
     )
   )
