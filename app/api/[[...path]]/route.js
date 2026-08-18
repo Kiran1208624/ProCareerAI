@@ -1682,20 +1682,162 @@ if (route === '/google/drive' && method === 'GET') {
       return handleCORS(NextResponse.json(data))
     }
 
-    // ============ AI: TAILOR ============
-    if (route === '/ai/tailor' && method === 'POST') {
-      const body = await request.json()
-      const resume = (body.resume || '').toString().trim()
-      const jobDescription = (body.jobDescription || '').toString().trim()
-      if (resume.length < 30) return handleCORS(NextResponse.json({ error: 'Please paste your resume.' }, { status: 400 }))
-      const messages = [
-        { role: 'system', content: 'You are an elite resume writer. Truthful — never invent facts. Return only valid JSON.' },
-        { role: 'user', content: `Rewrite the resume for ATS optimization${jobDescription ? ' targeting the job description' : ''}.\n\n== RESUME ==\n${resume}\n\n${jobDescription ? `== JOB DESCRIPTION ==\n${jobDescription}` : ''}\n\nReturn JSON: tailoredResume(string, clean plain text with sections), summaryLine(string), topBullets(string[5]), keywordsAdded(string[]), changesExplained(string[5]).` },
-      ]
-      const raw = await complete(messages, { response_format: { type: 'json_object' } })
-      const data = parseJson(raw)
-      return handleCORS(NextResponse.json(data))
+        // ============ AI: TAILOR ============
+        if (route === '/ai/tailor' && method === 'POST') {
+          const body = await request.json()
+          const resume = (body.resume || '').toString().trim()
+          const jobDescription = (body.jobDescription || '').toString().trim()
+    
+          if (resume.length < 30) {
+            return handleCORS(
+              NextResponse.json(
+                { error: 'Please paste your resume.' },
+                { status: 400 }
+              )
+            )
+          }
+    
+          const messages = [
+            {
+              role: 'system',
+              content: `
+    You are Veyra AI Resume Tailor.
+    
+    Your job is to improve a user's existing resume for ATS compatibility while preserving COMPLETE factual accuracy.
+    
+    ABSOLUTE RULE:
+    You must NEVER invent, assume, estimate, infer, or fabricate any fact about the candidate.
+    
+    NEVER invent or modify:
+    - company names
+    - job titles
+    - employment dates
+    - years of experience
+    - education
+    - degrees
+    - universities
+    - certifications
+    - projects
+    - clients
+    - products
+    - technologies
+    - programming languages
+    - frameworks
+    - tools
+    - responsibilities
+    - achievements
+    - awards
+    - metrics
+    - percentages
+    - revenue
+    - performance improvements
+    - team sizes
+    - user numbers
+    - salary
+    - locations
+    - promotions
+    - leadership experience
+    
+    CRITICAL:
+    The job description is NOT evidence that the candidate has a skill or experience.
+    
+    For example:
+    If the job description says "AWS required" but the resume does not mention AWS, DO NOT add AWS to the resume.
+    
+    If the job description says "improved performance by 30%" but the resume contains no such metric, DO NOT create a 30% metric.
+    
+    If the resume says "Software Engineer at ABC" you may rewrite the wording, but you must preserve ABC and the original factual meaning.
+    
+    If a fact is missing, leave it missing.
+    
+    You MAY:
+    - improve grammar
+    - improve clarity
+    - improve formatting
+    - reorganize existing information
+    - strengthen wording without changing factual meaning
+    - use action verbs
+    - combine redundant statements
+    - make existing skills more visible
+    - naturally incorporate keywords ONLY when those keywords are already supported by the resume
+    - create a professional summary based ONLY on facts present in the resume
+    
+    IMPORTANT:
+    Do not create a fictional "ideal" resume.
+    Do not replace the candidate's real employment history with placeholder or fictional information.
+    Do not create achievements simply because they would make the resume stronger.
+    
+    For every change, preserve the underlying factual claim from the original resume.
+    
+    Return ONLY valid JSON.
+              `.trim(),
+            },
+            {
+              role: 'user',
+              content: `
+    Tailor the following resume for ATS optimization${jobDescription ? ' against the provided job description' : ''}.
+    
+    IMPORTANT:
+    The resume is the ONLY source of truth about the candidate.
+    
+    == ORIGINAL RESUME ==
+    ${resume}
+    
+    ${jobDescription ? `== JOB DESCRIPTION ==
+    ${jobDescription}` : ''}
+    
+    Before writing the result, internally verify every factual statement in the tailored resume against the original resume.
+    
+    If the original resume does not support a fact, DO NOT include that fact.
+    
+    Return exactly this JSON structure:
+    
+    {
+      "tailoredResume": "string",
+      "summaryLine": "string",
+      "topBullets": ["string", "string", "string", "string", "string"],
+      "keywordsAdded": ["string"],
+      "changesExplained": ["string", "string", "string", "string", "string"]
     }
+    
+    Additional requirements:
+    
+    1. tailoredResume:
+       - Clean professional plain text.
+       - Preserve all factual information from the original resume.
+       - Improve wording and ATS readability.
+       - Do not invent missing information.
+    
+    2. summaryLine:
+       - Based only on the original resume.
+       - Do not claim skills, experience, seniority, achievements, or technologies not present.
+    
+    3. topBullets:
+       - Exactly 5 bullets when possible.
+       - Use only facts supported by the original resume.
+       - Do not manufacture metrics.
+    
+    4. keywordsAdded:
+       - Only include keywords that are supported by the original resume.
+       - Do not claim unsupported job-description keywords were added.
+    
+    5. changesExplained:
+       - Explain genuine edits made to the resume.
+       - Do not claim that unsupported information was added.
+    
+    The final resume must remain factually equivalent to the original resume.
+              `.trim(),
+            },
+          ]
+    
+          const raw = await complete(messages, {
+            response_format: { type: 'json_object' },
+          })
+    
+          const data = parseJson(raw)
+    
+          return handleCORS(NextResponse.json(data))
+        }
 
     // ============ AI: RESUME GEN FROM PROFILE ============
     if (route === '/ai/resume/generate' && method === 'POST') {

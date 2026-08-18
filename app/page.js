@@ -48,7 +48,7 @@ const featureList = [
   { icon: Wand2, title: 'Resume Tailoring', desc: 'Rewrite your resume for any job — truthful, keyword-aligned.', color: 'text-violet-400' },
   { icon: Bot, title: 'AI Career Coach', desc: '24/7 personalized coaching for direction, growth & interviews.', color: 'text-amber-400' },
   { icon: Briefcase, title: 'Job Tracker', desc: 'Wishlist → Applied → Interview → Offer, all in one board.', color: 'text-pink-400' },
-  { icon: MessageSquare, title: 'Interview Prep', desc: 'Mock interviews and feedback powered by GPT-5.', color: 'text-cyan-400' },
+  { icon: MessageSquare, title: 'Interview Prep', desc: 'Mock interviews and feedback powered by GPT-4o.', color: 'text-cyan-400' },
   { icon: Calendar, title: 'Calendar Sync', desc: 'Google Calendar integration for interviews & deadlines.', color: 'text-emerald-400' },
   { icon: Mail, title: 'Gmail Insights', desc: 'AI reads recruiter emails and drafts perfect replies.', color: 'text-blue-400' },
   { icon: BarChart3, title: 'Analytics', desc: 'Track applications, interviews, and career growth trends.', color: 'text-violet-400' },
@@ -148,7 +148,7 @@ function Hero() {
           className="text-center max-w-4xl mx-auto"
         >
           <Badge className="mb-6 bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 rounded-full px-4 py-1.5">
-            <Sparkles className="w-3 h-3 mr-1.5 text-emerald-400" /> Powered by GPT-5 · Now in Beta
+            <Sparkles className="w-3 h-3 mr-1.5 text-emerald-400" /> Powered by GPT-4o · Now in Beta
           </Badge>
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05]">
             <span className="text-gradient">Your AI</span>
@@ -368,7 +368,7 @@ function ATSAnalyzer() {
           <Textarea value={jd} onChange={e => setJd(e.target.value)} rows={6} className="bg-black/40 border-white/10 text-white/90 text-sm resize-none" placeholder="Paste the job description..." />
         </div>
         <Button onClick={analyze} disabled={loading} className="w-full h-11 bg-gradient-to-r from-emerald-500 to-blue-500 hover:opacity-90 text-white font-medium rounded-lg">
-          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing with GPT-5...</> : <><Zap className="w-4 h-4 mr-2" /> Run ATS Analysis</>}
+          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Analyzing with GPT-4o...</> : <><Zap className="w-4 h-4 mr-2" /> Run ATS Analysis</>}
         </Button>
       </div>
       <div>
@@ -385,7 +385,7 @@ function ATSAnalyzer() {
           {loading && (
             <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="glass rounded-2xl p-8 h-full flex flex-col items-center justify-center min-h-[420px]">
               <Loader2 className="w-10 h-10 animate-spin text-emerald-400 mb-4" />
-              <div className="text-sm text-white/60">GPT-5 is scoring your resume...</div>
+              <div className="text-sm text-white/60">GPT-4o is scoring your resume...</div>
             </motion.div>
           )}
           {result && (
@@ -494,7 +494,7 @@ function ResumeTailor() {
           <Textarea value={jd} onChange={e => setJd(e.target.value)} rows={6} className="bg-black/40 border-white/10 text-white/90 text-sm resize-none" />
         </div>
         <Button onClick={tailor} disabled={loading} className="w-full h-11 bg-gradient-to-r from-violet-500 to-blue-500 hover:opacity-90 text-white font-medium rounded-lg">
-          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Rewriting with GPT-5...</> : <><Wand2 className="w-4 h-4 mr-2" /> Tailor My Resume</>}
+          {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Rewriting with GPT-4o...</> : <><Wand2 className="w-4 h-4 mr-2" /> Tailor My Resume</>}
         </Button>
       </div>
       <div>
@@ -605,7 +605,7 @@ function CareerCoach() {
           </div>
           <div>
             <div className="text-sm font-semibold">Veyra Career Coach</div>
-            <div className="text-[11px] text-white/50 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-slow" /> Online · GPT-5</div>
+            <div className="text-[11px] text-white/50 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-slow" /> Online · GPT-4o</div>
           </div>
         </div>
         <Badge className="bg-white/5 border border-white/10 text-white/70 text-[10px]">Session · {sessionId.slice(0, 6)}</Badge>
@@ -677,7 +677,7 @@ function Workspace() {
         <div className="text-center max-w-2xl mx-auto mb-12">
           <Badge className="mb-4 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">Live · Try it now</Badge>
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-gradient">Your AI workspace</h2>
-          <p className="mt-4 text-white/50">All three flagship AI tools — free, right here, no signup. Powered by GPT-5.</p>
+          <p className="mt-4 text-white/50">All three flagship AI tools — free, right here, no signup. Powered by GPT-4o.</p>
         </div>
         <Tabs defaultValue="ats" className="w-full">
           <TabsList className="grid grid-cols-3 max-w-xl mx-auto bg-black/40 border border-white/10 rounded-full p-1 h-12 mb-8">
@@ -757,7 +757,7 @@ function CTA() {
           )}
           <div className="mt-6 flex items-center justify-center gap-4 text-xs text-white/40 flex-wrap">
             <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> SOC 2 ready</span>
-            <span className="flex items-center gap-1"><Cpu className="w-3 h-3" /> GPT-5 powered</span>
+            <span className="flex items-center gap-1"><Cpu className="w-3 h-3" /> GPT-4o powered</span>
             <span className="flex items-center gap-1"><Star className="w-3 h-3" /> Free forever plan</span>
           </div>
         </div>
@@ -777,7 +777,7 @@ function Footer() {
           <span className="font-semibold">Veyra</span>
           <span className="text-white/40 text-sm">· Your AI Career OS</span>
         </div>
-        <div className="text-xs text-white/40">© {new Date().getFullYear()} Veyra AI · Built with GPT-5</div>
+        <div className="text-xs text-white/40">© {new Date().getFullYear()} Veyra AI · Built with GPT-4o</div>
       </div>
     </footer>
   )
