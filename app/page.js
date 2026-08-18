@@ -104,6 +104,22 @@ function Nav() {
     </span>
   </span>
 </a>
+{/* Hero Section */}
+<section className="...">
+<h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05]">
+  <span className="text-white">Veyra AI</span>
+  <br />
+  <span className="text-gradient-brand">Your Career Operating System</span>
+</h1>
+
+<p className="mt-8 text-lg md:text-xl text-white/60 max-w-2xl mx-auto leading-relaxed">
+  Veyra AI is an AI-powered career platform that helps you build ATS-optimized resumes, 
+  tailor applications for any job, prepare for interviews, and manage your entire job search 
+  from one intelligent workspace.
+</p>
+  {/* CTA buttons */}
+</section>
+
           <nav className="hidden md:flex items-center gap-8 text-sm text-white/70">
             <a href="#features" className="hover:text-white transition">Features</a>
             <a href="#workspace" className="hover:text-white transition">Products</a>
