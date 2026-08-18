@@ -149,16 +149,28 @@ function Hero() {
           className="text-center max-w-4xl mx-auto"
         >
           <Badge className="mb-6 bg-white/5 text-white/80 border border-white/10 hover:bg-white/10 rounded-full px-4 py-1.5">
-            <Sparkles className="w-3 h-3 mr-1.5 text-emerald-400" /> Powered by GPT-4o · Now in Beta
-          </Badge>
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05]">
-            <span className="text-gradient">Your AI</span>
-            <br />
-            <span className="text-gradient-brand">Career Operating System</span>
-          </h1>
-          <p className="mt-8 text-lg md:text-xl text-white/60 max-w-2xl mx-auto leading-relaxed">
-            Build resumes, land interviews, and manage your entire career from one intelligent workspace. Veyra learns you, coaches you, and moves you forward — every day.
-          </p>
+  <Sparkles className="w-3 h-3 mr-1.5 text-emerald-400" />
+  Veyra AI · Intelligent Career Platform
+</Badge>
+<h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05]">
+  <span className="text-gradient-brand">Veyra AI</span>
+  <br />
+  <span className="text-gradient">Your AI Career Operating System</span>
+</h1>
+<p className="mt-8 text-lg md:text-xl text-white/60 max-w-2xl mx-auto leading-relaxed">
+  Veyra AI is an AI-powered career platform that helps you build resumes,
+  analyze ATS compatibility, prepare for interviews, track job applications,
+  and manage your career in one intelligent workspace.
+</p>
+<div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-sm text-white/50">
+  <span>AI Resume Builder</span>
+  <span>·</span>
+  <span>ATS Analysis</span>
+  <span>·</span>
+  <span>Interview Preparation</span>
+  <span>·</span>
+  <span>Job Tracking</span>
+</div>
           <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
             <a href="/api/auth/google">
               <Button size="lg" className="bg-white text-black hover:bg-white/90 rounded-full px-7 h-12 font-semibold">
@@ -183,7 +195,17 @@ function Hero() {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 1 }}
           className="mt-24"
         >
-          <p className="text-center text-xs uppercase tracking-widest text-white/40 mb-6">Trusted by professionals hired at</p>
+          <p className="text-center text-xs uppercase tracking-widest text-white/40 mb-6">
+  Built for your entire career journey
+</p>
+
+<div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-white/40">
+  {['Resume Building', 'ATS Optimization', 'Interview Prep', 'Job Tracking', 'Career Coaching'].map(item => (
+    <span key={item} className="text-sm font-medium">
+      {item}
+    </span>
+  ))}
+</div>
           <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-white/40">
             {brands.map(b => (
               <span key={b} className="text-lg font-semibold tracking-tight hover:text-white/70 transition">{b}</span>
@@ -758,7 +780,9 @@ function CTA() {
           )}
           <div className="mt-6 flex items-center justify-center gap-4 text-xs text-white/40 flex-wrap">
             <span className="flex items-center gap-1"><Shield className="w-3 h-3" /> SOC 2 ready</span>
-            <span className="flex items-center gap-1"><Cpu className="w-3 h-3" /> GPT-4o powered</span>
+            <span className="flex items-center gap-1">
+  <Shield className="w-3 h-3" /> SOC 2 ready
+</span>
             <span className="flex items-center gap-1"><Star className="w-3 h-3" /> Free forever plan</span>
           </div>
         </div>
@@ -776,7 +800,7 @@ function Footer() {
             <Sparkles className="w-3.5 h-3.5 text-white" />
           </div>
           <span className="font-semibold">Veyra</span>
-          <span className="text-white/40 text-sm">· Your AI Career OS</span>
+          <span className="text-white/40 text-sm">· AI-powered career platform</span>
         </div>
         <div className="text-xs text-white/40">© {new Date().getFullYear()} Veyra AI · Built with GPT-4o</div>
       </div>
