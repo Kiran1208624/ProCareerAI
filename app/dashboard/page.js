@@ -824,11 +824,6 @@ const [calendarCreating, setCalendarCreating] = useState(false)
       return
     }
 
-    if (!composeSubject.trim()) {
-      toast.error('Subject is required')
-      return
-    }
-
     if (!composeInstruction.trim()) {
       toast.error('Tell AI what you want to say')
       return
@@ -1078,8 +1073,8 @@ const [calendarCreating, setCalendarCreating] = useState(false)
   }
 
   async function sendDraft(draftToSend = draft) {
-    if (!draftToSend?.to || !draftToSend?.subject || !draftToSend?.body) {
-      toast.error('Recipient, subject and body are required')
+    if (!draftToSend?.to || !draftToSend?.body) {
+      toast.error('Recipient and body are required')
       return false
     }
 
@@ -1260,7 +1255,6 @@ if (!connected) {
               disabled={
                 composeLoading ||
 !composeTo.trim() ||
-!composeSubject.trim() ||
 !composeInstruction.trim()
               }
               className="bg-white text-black hover:bg-white/90"
@@ -1404,7 +1398,7 @@ if (!connected) {
               disabled={
                 sendLoading ||
                 !draft.to?.trim() ||
-                !draft.subject?.trim() ||
+
                 !draft.body?.trim()
               }
               className="bg-white text-black hover:bg-white/90"
@@ -4630,6 +4624,25 @@ function CollegePortalTab() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
+  const [showDriveForm, setShowDriveForm] = useState(false)
+  const [savingDrive, setSavingDrive] = useState(false)
+  const [editingDriveId, setEditingDriveId] = useState(null)
+
+  const [driveForm, setDriveForm] = useState({
+    companyName: '',
+    jobTitle: '',
+    description: '',
+    location: '',
+    employmentType: 'full_time',
+    salaryMin: '',
+    salaryMax: '',
+    minCGPA: '',
+    maxBacklogs: '',
+    branches: '',
+    driveDate: '',
+    applicationDeadline: '',
+  })
+
   async function loadCollegeData(refresh = false) {
     if (refresh) setRefreshing(true)
     else setLoading(true)
@@ -4657,6 +4670,101 @@ function CollegePortalTab() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  async function saveDrive() {
+    if (!driveForm.companyName.trim() || !driveForm.jobTitle.trim()) {
+      toast.error('Company name and job title are required')
+      return
+    }
+
+    setSavingDrive(true)
+
+    try {
+      const payload = {
+        companyName: driveForm.companyName.trim(),
+        jobTitle: driveForm.jobTitle.trim(),
+        description: driveForm.description.trim(),
+        location: driveForm.location.trim(),
+        employmentType: driveForm.employmentType,
+
+        salaryMin: Number(driveForm.salaryMin || 0),
+        salaryMax: Number(driveForm.salaryMax || 0),
+
+        eligibility: {
+          minCGPA:
+            driveForm.minCGPA !== ''
+              ? Number(driveForm.minCGPA)
+              : null,
+
+          maxBacklogs:
+            driveForm.maxBacklogs !== ''
+              ? Number(driveForm.maxBacklogs)
+              : null,
+
+          branches: driveForm.branches
+            .split(',')
+            .map(branch => branch.trim())
+            .filter(Boolean),
+        },
+
+        driveDate: driveForm.driveDate || null,
+        applicationDeadline: driveForm.applicationDeadline || null,
+
+        status: 'published',
+      }
+
+      const url = editingDriveId
+        ? `/api/college/drives/${editingDriveId}`
+        : '/api/college/drives'
+
+      const response = await fetch(url, {
+        method: editingDriveId ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+          `Failed to ${editingDriveId ? 'update' : 'create'} placement drive`
+        )
+      }
+
+      toast.success(
+        editingDriveId
+          ? 'Placement drive updated'
+          : 'Placement drive published'
+      )
+
+      setShowDriveForm(false)
+      setEditingDriveId(null)
+
+      setDriveForm({
+        companyName: '',
+        jobTitle: '',
+        description: '',
+        location: '',
+        employmentType: 'full_time',
+        salaryMin: '',
+        salaryMax: '',
+        minCGPA: '',
+        maxBacklogs: '',
+        branches: '',
+        driveDate: '',
+        applicationDeadline: '',
+      })
+
+      await loadCollegeData(true)
+    } catch (error) {
+      toast.error(error.message || 'Failed to save placement drive')
+    } finally {
+      setSavingDrive(false)
     }
   }
 
