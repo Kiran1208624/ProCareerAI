@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, FileText, Target, Zap, BarChart3, Calendar as CalIcon, CalendarDays,
-  Mail, Briefcase, ArrowRight, Check, Send, Loader2, ChevronRight,
+  Mail, FolderOpen, Briefcase, ArrowRight, Check, Send, Loader2, ChevronRight,
   Bot, Layers, Wand2, Copy, Download, User, LogOut,
   Cloud, GitBranch, Linkedin, Brain, Compass, Plus, X, RefreshCw,
   Building2, Trash2, ExternalLink, MapPin, Award, BookOpen, Settings,
@@ -21,36 +21,119 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { toast, Toaster } from 'sonner'
 
-const NAV = [
-  { key: 'home', label: 'Dashboard', icon: Layers },
-  { key: 'chat', label: 'AI Copilot', icon: Bot },
-  { key: 'profile', label: 'Profile', icon: User },
-  { key: 'jobs', label: 'Job Tracker', icon: Briefcase },
-  { key: 'interview', label: 'Mock Interview', icon: MessageSquare },
-  { key: 'coding', label: 'Coding Interview', icon: Code2 },
-  { key: 'cover', label: 'Cover Letter', icon: FileText },
-  { key: 'careerdna', label: 'Career DNA', icon: Fingerprint },
-  { key: 'roadmap', label: 'Learning Roadmap', icon: Map },
-  { key: 'gap', label: 'Skill Gap', icon: TargetIcon },
-  { key: 'memory', label: 'AI Memory', icon: Brain },
-  { key: 'opportunities', label: 'Opportunities', icon: Compass },
-  { key: 'resume', label: 'Resume Studio', icon: FileText },
-  { key: 'ats', label: 'ATS Analyzer', icon: Target },
-  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { key: 'gmail', label: 'Gmail', icon: Mail },
-  { key: 'calendar', label: 'Calendar', icon: CalIcon },
-  { key: 'drive', label: 'Drive', icon: Cloud },
-  { key: 'notifications', label: 'Notifications', icon: Bell },
-  { key: 'college', label: 'College Portal', icon: GraduationCap, requireRole: ['college_admin'] },
-  { key: 'recruit', label: 'Recruit', icon: Users, requireRole: ['recruiter', 'company_admin', 'college_admin'] },
-  { key: 'settings', label: 'Settings', icon: Settings },
-]
+const NAV_GROUPS = {
+  student: [
+    {
+      title: 'MAIN',
+      items: [
+        { key: 'home', label: 'Dashboard', icon: Layers },
+        { key: 'chat', label: 'AI Copilot', icon: Bot },
+        { key: 'profile', label: 'Profile', icon: User },
+      ],
+    },
+    {
+      title: 'CAREER',
+      items: [
+        { key: 'resume', label: 'Resume Studio', icon: FileText },
+        { key: 'jobs', label: 'Job Tracker', icon: Briefcase },
+        { key: 'interview', label: 'Interview', icon: MessageSquare },
+        { key: 'careerdna', label: 'Career DNA', icon: Fingerprint },
+        { key: 'roadmap', label: 'Learning Roadmap', icon: Map },
+        { key: 'opportunities', label: 'Opportunities', icon: Compass },
+      ],
+    },
+    {
+      title: 'INSIGHTS',
+      items: [
+        { key: 'gap', label: 'Skill Gap', icon: TargetIcon },
+        { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+      ],
+    },
+    {
+      title: 'CONNECTED',
+      items: [
+        { key: 'gmail', label: 'Gmail', icon: Mail },
+        { key: 'calendar', label: 'Calendar', icon: CalIcon },
+        { key: 'drive', label: 'Drive', icon: Cloud },
+      ],
+    },
+    {
+      title: 'MORE',
+      items: [
+        { key: 'cover', label: 'Cover Letter', icon: FileText },
+        { key: 'coding', label: 'Coding Interview', icon: Code2 },
+        { key: 'memory', label: 'AI Memory', icon: Brain },
+        { key: 'ats', label: 'ATS Analyzer', icon: Target },
+        { key: 'notifications', label: 'Notifications', icon: Bell },
+        { key: 'settings', label: 'Settings', icon: Settings },
+      ],
+    },
+  ],
+
+  college_admin: [
+    {
+      title: 'COLLEGE',
+      items: [
+        { key: 'home', label: 'Dashboard', icon: Layers },
+        { key: 'chat', label: 'AI Copilot', icon: Bot },
+        { key: 'college', label: 'College Portal', icon: GraduationCap },
+        { key: 'recruit', label: 'Recruitment', icon: Users },
+        { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+        { key: 'profile', label: 'College Profile', icon: Building2 },
+        { key: 'settings', label: 'Settings', icon: Settings },
+      ],
+    },
+  ],
+
+  recruiter: [
+    {
+      title: 'RECRUITMENT',
+      items: [
+        { key: 'home', label: 'Dashboard', icon: Layers },
+        { key: 'recruit', label: 'Recruitment', icon: Users },
+        { key: 'jobs', label: 'Jobs', icon: Briefcase },
+        { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+        { key: 'profile', label: 'Company Profile', icon: Building2 },
+        { key: 'settings', label: 'Settings', icon: Settings },
+      ],
+    },
+  ],
+
+  company_admin: [
+    {
+      title: 'COMPANY',
+      items: [
+        { key: 'home', label: 'Dashboard', icon: Layers },
+        { key: 'recruit', label: 'Recruitment', icon: Users },
+        { key: 'jobs', label: 'Jobs', icon: Briefcase },
+        { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+        { key: 'profile', label: 'Company Profile', icon: Building2 },
+        { key: 'settings', label: 'Settings', icon: Settings },
+      ],
+    },
+  ],
+
+  admin: [
+    {
+      title: 'ADMIN',
+      items: [
+        { key: 'home', label: 'Dashboard', icon: Layers },
+        { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+        { key: 'settings', label: 'Settings', icon: Settings },
+      ],
+    },
+  ],
+}
 
 function Dashboard() {
   const [me, setMe] = useState(null)
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState('home')
+  const role = me?.user?.role || 'student'
 
+  const navGroups =
+    NAV_GROUPS[role] ||
+    NAV_GROUPS.student
   async function loadMe() {
     try {
       const r = await fetch('/api/me')
@@ -164,15 +247,49 @@ function Dashboard() {
     </span>
   </span>
 </a>
-        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV.filter(n => !n.requireRole || (me.user.role && n.requireRole.includes(me.user.role))).map(n => (
-            <button key={n.key} onClick={() => setActive(n.key)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${active === n.key ? 'bg-white/[0.06] text-white' : 'text-white/60 hover:bg-white/[0.03] hover:text-white'}`}>
-              <n.icon className="w-4 h-4" />
-              <span>{n.label}</span>
-            </button>
-          ))}
-        </nav>
+<nav className="flex-1 p-3 overflow-y-auto">
+  <div className="space-y-5">
+    {navGroups.map((group) => (
+      <div key={group.title}>
+        <div className="px-3 mb-2 text-[10px] font-semibold tracking-[0.16em] text-white/25">
+          {group.title}
+        </div>
+
+        <div className="space-y-0.5">
+          {group.items.map((item) => {
+            const Icon = item.icon
+            const isActive = active === item.key
+
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActive(item.key)}
+                className={`
+                  w-full flex items-center gap-3
+                  px-3 py-2.5
+                  rounded-lg
+                  text-sm
+                  transition-all
+                  ${
+                    isActive
+                      ? 'bg-white/[0.08] text-white'
+                      : 'text-white/55 hover:bg-white/[0.04] hover:text-white'
+                  }
+                `}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+
+                <span className="truncate">
+                  {item.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    ))}
+  </div>
+</nav>
         <div className="p-3 border-t border-white/5">
           <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/[0.03]">
             {me.user.picture ? (
@@ -196,7 +313,7 @@ function Dashboard() {
         <div className="max-w-6xl mx-auto p-8">
           {active === 'home' && <HomeTab me={me} setActive={setActive} />}
           {active === 'chat' && <ChatTab me={me} />}
-          {active === 'profile' && <ProfileTab me={me} reload={loadMe} />}
+          {active === 'profile' && (['company_admin', 'recruiter'].includes(me?.role) ? <CompanyProfileTab /> : <ProfileTab me={me} reload={loadMe} />)}
           {active === 'jobs' && <JobsTab />}
           {active === 'interview' && <InterviewTab />}
           {active === 'coding' && <CodingTab />}
@@ -225,57 +342,371 @@ function Dashboard() {
 // ---------- HOME ----------
 function HomeTab({ me, setActive }) {
   const stats = [
-    { label: 'Memories', value: me.memoriesCount || 0, icon: Brain, color: 'from-emerald-500 to-emerald-700' },
-    { label: 'Skills', value: me.skills?.length || 0, icon: Award, color: 'from-blue-500 to-blue-700' },
-    { label: 'Projects', value: me.projects?.length || 0, icon: Briefcase, color: 'from-violet-500 to-violet-700' },
-    { label: 'Google', value: me.connected.google ? 'Linked' : 'Not linked', icon: Cloud, color: 'from-amber-500 to-amber-700' },
+    {
+      label: 'Memories',
+      value: me.memoriesCount || 0,
+      icon: Brain,
+      action: () => setActive('memory'),
+    },
+    {
+      label: 'Skills',
+      value: me.skills?.length || 0,
+      icon: Award,
+      action: () => setActive('profile'),
+    },
+    {
+      label: 'Projects',
+      value: me.projects?.length || 0,
+      icon: Briefcase,
+      action: () => setActive('profile'),
+    },
+    {
+      label: 'Google',
+      value: me.connected.google ? 'Linked' : 'Connect',
+      icon: Cloud,
+      action: () => setActive('settings'),
+    },
   ]
+
   const quickActions = [
-    { key: 'chat', label: 'Ask AI coach', icon: Bot, desc: 'Get personalized career advice' },
-    { key: 'opportunities', label: 'Find opportunities', icon: Compass, desc: 'AI-matched roles for you' },
-    { key: 'resume', label: 'Generate resume', icon: FileText, desc: 'AI-built from your profile' },
-    { key: 'ats', label: 'Score my resume', icon: Target, desc: 'Instant ATS analysis' },
+    {
+      title: 'Ask Veyra',
+      description: 'Get personalized career guidance',
+      icon: Bot,
+      action: () => setActive('chat'),
+    },
+    {
+      title: 'Improve Resume',
+      description: 'Build a stronger, ATS-ready resume',
+      icon: FileText,
+      action: () => setActive('resume'),
+    },
+    {
+      title: 'Find Opportunities',
+      description: 'Discover roles matched to your profile',
+      icon: Compass,
+      action: () => setActive('opportunities'),
+    },
+    {
+      title: 'Check Skill Gap',
+      description: 'See what skills you should build next',
+      icon: Target,
+      action: () => setActive('gap'),
+    },
   ]
+
+  const connectedApps = [
+    {
+      name: 'Calendar',
+      description: 'Your schedule',
+      icon: CalendarDays,
+      active: me.connected.google,
+      action: () => setActive('calendar'),
+    },
+    {
+      name: 'Gmail',
+      description: 'Career emails',
+      icon: Mail,
+      active: me.connected.google,
+      action: () => setActive('gmail'),
+    },
+    {
+      name: 'Drive',
+      description: 'Your career files',
+      icon: FolderOpen,
+      active: me.connected.google,
+      action: () => setActive('drive'),
+    },
+  ]
+
   return (
-    <div className="space-y-8">
-      <div>
-        <div className="text-sm text-white/50">Welcome back</div>
-        <h1 className="text-3xl font-bold mt-1">Hi, {me.user.name?.split(' ')[0]} 👋</h1>
-        <p className="text-white/50 mt-1 text-sm">Here's your career at a glance.</p>
-      </div>
+    <div className="space-y-6">
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {stats.map(s => (
-          <div key={s.label} className="glass rounded-xl p-4">
-            <div className="flex items-center gap-2 text-xs text-white/40 mb-2">
-              <s.icon className="w-3.5 h-3.5" /> {s.label}
-            </div>
-            <div className="text-2xl font-bold">{s.value}</div>
-          </div>
-        ))}
-      </div>
-
+      {/* Today's Intelligence */}
       <DailyBriefingCard />
 
+      {/* Career Snapshot */}
       <div>
-        <div className="text-sm font-semibold mb-3 text-white/70">Quick actions</div>
-        <div className="grid md:grid-cols-2 gap-3">
-          {quickActions.map(q => (
-            <button key={q.key} onClick={() => setActive(q.key)} className="glass rounded-xl p-5 text-left hover:bg-white/[0.04] transition group">
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500/20 to-blue-500/20 flex items-center justify-center group-hover:scale-110 transition">
-                  <q.icon className="w-5 h-5 text-emerald-400" />
+        <div className="flex items-end justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-white/80">
+              Your Career Snapshot
+            </h2>
+            <p className="text-xs text-white/35 mt-1">
+              Your Veyra profile at a glance
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {stats.map((stat) => {
+            const Icon = stat.icon
+
+            return (
+              <button
+                key={stat.label}
+                onClick={stat.action}
+                className="
+                  text-left
+                  glass
+                  rounded-xl
+                  p-4
+                  border border-white/[0.07]
+                  hover:bg-white/[0.04]
+                  hover:border-white/[0.12]
+                  transition-all
+                  group
+                "
+              >
+                <div className="flex items-center justify-between">
+                  <div className="
+                    w-9 h-9
+                    rounded-lg
+                    bg-white/[0.05]
+                    flex items-center justify-center
+                    group-hover:bg-white/[0.08]
+                    transition
+                  ">
+                    <Icon className="w-4 h-4 text-white/60" />
+                  </div>
+
+                  <ChevronRight
+                    className="
+                      w-3.5 h-3.5
+                      text-white/20
+                      group-hover:text-white/50
+                      transition
+                    "
+                  />
                 </div>
-                <div className="flex-1">
-                  <div className="font-semibold">{q.label}</div>
-                  <div className="text-xs text-white/50 mt-0.5">{q.desc}</div>
+
+                <div className="mt-4">
+                  <div className="text-xl font-semibold text-white">
+                    {stat.value}
+                  </div>
+
+                  <div className="text-[11px] text-white/40 mt-0.5">
+                    {stat.label}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-white/30 group-hover:text-white transition" />
-              </div>
-            </button>
-          ))}
+              </button>
+            )
+          })}
         </div>
       </div>
+
+      {/* Quick Actions */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-white/80">
+            What do you want to work on?
+          </h2>
+          <p className="text-xs text-white/35 mt-1">
+            Jump straight into your next career move
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-3">
+          {quickActions.map((item) => {
+            const Icon = item.icon
+
+            return (
+              <button
+                key={item.title}
+                onClick={item.action}
+                className="
+                  group
+                  text-left
+                  glass
+                  rounded-xl
+                  p-4
+                  border border-white/[0.07]
+                  hover:bg-white/[0.04]
+                  hover:border-white/[0.12]
+                  transition-all
+                  flex items-center gap-4
+                "
+              >
+                <div className="
+                  w-10 h-10
+                  rounded-xl
+                  bg-gradient-to-br from-emerald-500/15 to-blue-500/15
+                  border border-white/[0.06]
+                  flex items-center justify-center
+                  shrink-0
+                  group-hover:scale-105
+                  transition
+                ">
+                  <Icon className="w-4.5 h-4.5 text-emerald-300" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white">
+                    {item.title}
+                  </div>
+
+                  <div className="text-xs text-white/40 mt-0.5">
+                    {item.description}
+                  </div>
+                </div>
+
+                <ChevronRight
+                  className="
+                    w-4 h-4
+                    text-white/20
+                    group-hover:text-white/60
+                    group-hover:translate-x-0.5
+                    transition
+                  "
+                />
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Connected Workspace */}
+      <div>
+        <div className="flex items-end justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-white/80">
+              Connected Workspace
+            </h2>
+            <p className="text-xs text-white/35 mt-1">
+              Your everyday tools, brought into Veyra
+            </p>
+          </div>
+
+          {me.connected.google && (
+            <div className="flex items-center gap-1.5 text-[10px] text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              Google connected
+            </div>
+          )}
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-3">
+          {connectedApps.map((app) => {
+            const Icon = app.icon
+
+            return (
+              <button
+                key={app.name}
+                onClick={app.action}
+                className="
+                  group
+                  text-left
+                  glass
+                  rounded-xl
+                  p-4
+                  border border-white/[0.07]
+                  hover:bg-white/[0.04]
+                  hover:border-white/[0.12]
+                  transition-all
+                "
+              >
+                <div className="flex items-center justify-between">
+                  <div className="
+                    w-9 h-9
+                    rounded-lg
+                    bg-white/[0.05]
+                    flex items-center justify-center
+                  ">
+                    <Icon className="w-4 h-4 text-white/60" />
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        app.active
+                          ? 'bg-emerald-400'
+                          : 'bg-white/20'
+                      }`}
+                    />
+
+                    <span className="text-[10px] text-white/30">
+                      {app.active ? 'Connected' : 'Not connected'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-sm font-medium text-white">
+                    {app.name}
+                  </div>
+
+                  <div className="text-xs text-white/40 mt-0.5">
+                    {app.description}
+                  </div>
+                </div>
+
+                <div className="
+                  mt-3
+                  text-[10px]
+                  text-white/25
+                  group-hover:text-white/50
+                  transition
+                ">
+                  Open →
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Career DNA Prompt */}
+      <button
+        onClick={() => setActive('careerdna')}
+        className="
+          w-full
+          text-left
+          rounded-xl
+          p-5
+          border border-violet-500/15
+          bg-gradient-to-r
+          from-violet-500/[0.07]
+          via-blue-500/[0.04]
+          to-transparent
+          hover:from-violet-500/[0.11]
+          transition-all
+          group
+        "
+      >
+        <div className="flex items-center gap-4">
+          <div className="
+            w-10 h-10
+            rounded-xl
+            bg-violet-500/10
+            border border-violet-500/15
+            flex items-center justify-center
+            shrink-0
+          ">
+            <Sparkles className="w-5 h-5 text-violet-300" />
+          </div>
+
+          <div className="flex-1">
+            <div className="text-sm font-semibold text-white">
+              Build your Career DNA
+            </div>
+
+            <div className="text-xs text-white/40 mt-1">
+              Let Veyra understand your strengths, goals and career direction.
+            </div>
+          </div>
+
+          <ChevronRight
+            className="
+              w-5 h-5
+              text-white/20
+              group-hover:text-violet-300
+              group-hover:translate-x-1
+              transition
+            "
+          />
+        </div>
+      </button>
+
     </div>
   )
 }
@@ -533,6 +964,239 @@ function Field({ label, children }) {
       <div className="text-xs uppercase tracking-wider text-white/50 mb-1.5">{label}</div>
       {children}
     </label>
+  )
+}
+
+
+// ---------- COMPANY PROFILE ----------
+function CompanyProfileTab() {
+  const [company, setCompany] = useState(null)
+  const [form, setForm] = useState({
+    companyName: '',
+    phone: '',
+    website: '',
+    address: '',
+    logo: '',
+    description: '',
+    industry: '',
+    companySize: '',
+  })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  async function loadCompany() {
+    setLoading(true)
+
+    try {
+      const r = await fetch('/api/company/profile')
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to load company')
+      }
+
+      setCompany(data)
+      setForm({
+        companyName: data.companyName || data.name || '',
+        phone: data.phone || '',
+        website: data.website || '',
+        address: data.address || '',
+        logo: data.logo || '',
+        description: data.description || '',
+        industry: data.industry || '',
+        companySize: data.companySize || '',
+      })
+    } catch (e) {
+      console.error(e)
+      toast.error(e.message || 'Failed to load company')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadCompany()
+  }, [])
+
+  async function saveCompany() {
+    setSaving(true)
+
+    try {
+      const r = await fetch('/api/company/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone: form.phone,
+          website: form.website,
+          address: form.address,
+          logo: form.logo,
+          description: form.description,
+          industry: form.industry,
+          companySize: form.companySize,
+        }),
+      })
+
+      const data = await r.json()
+
+      if (!r.ok) {
+        throw new Error(data.error || 'Failed to save company')
+      }
+
+      setCompany(data)
+      toast.success('Company profile saved')
+      await loadCompany()
+    } catch (e) {
+      console.error(e)
+      toast.error(e.message || 'Failed to save company')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center p-12">
+        <Loader2 className="w-6 h-6 animate-spin text-white/50" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div>
+        <h1 className="text-3xl font-bold">Company Profile</h1>
+        <p className="text-white/50 mt-1 text-sm">
+          Manage the public identity of your company on Veyra.
+        </p>
+      </div>
+
+      <div className="glass rounded-2xl p-6 space-y-5">
+        <div className="flex items-center gap-4">
+          {form.logo ? (
+            <img
+              src={form.logo}
+              alt=""
+              className="w-16 h-16 rounded-xl object-cover bg-white/5"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-xl bg-white/10 flex items-center justify-center">
+              <Building2 className="w-7 h-7 text-white/40" />
+            </div>
+          )}
+
+          <div>
+            <div className="text-lg font-semibold">
+              {form.companyName || 'Company'}
+            </div>
+            <div className="text-xs text-white/40">
+              Company administrator profile
+            </div>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <Field label="Company name">
+            <Input
+              value={form.companyName}
+              disabled
+              className="bg-black/40 border-white/10 opacity-70"
+            />
+          </Field>
+
+          <Field label="Industry">
+            <Input
+              value={form.industry}
+              onChange={e =>
+                setForm(f => ({ ...f, industry: e.target.value }))
+              }
+              placeholder="e.g. Technology"
+              className="bg-black/40 border-white/10"
+            />
+          </Field>
+
+          <Field label="Company size">
+            <Input
+              value={form.companySize}
+              onChange={e =>
+                setForm(f => ({ ...f, companySize: e.target.value }))
+              }
+              placeholder="e.g. 51-200"
+              className="bg-black/40 border-white/10"
+            />
+          </Field>
+
+          <Field label="Phone">
+            <Input
+              value={form.phone}
+              onChange={e =>
+                setForm(f => ({ ...f, phone: e.target.value }))
+              }
+              placeholder="Company phone"
+              className="bg-black/40 border-white/10"
+            />
+          </Field>
+
+          <Field label="Website">
+            <Input
+              value={form.website}
+              onChange={e =>
+                setForm(f => ({ ...f, website: e.target.value }))
+              }
+              placeholder="https://company.com"
+              className="bg-black/40 border-white/10"
+            />
+          </Field>
+
+          <Field label="Logo URL">
+            <Input
+              value={form.logo}
+              onChange={e =>
+                setForm(f => ({ ...f, logo: e.target.value }))
+              }
+              placeholder="https://..."
+              className="bg-black/40 border-white/10"
+            />
+          </Field>
+        </div>
+
+        <Field label="Address">
+          <Textarea
+            rows={2}
+            value={form.address}
+            onChange={e =>
+              setForm(f => ({ ...f, address: e.target.value }))
+            }
+            placeholder="Company address"
+            className="bg-black/40 border-white/10 resize-none"
+          />
+        </Field>
+
+        <Field label="Company description">
+          <Textarea
+            rows={5}
+            value={form.description}
+            onChange={e =>
+              setForm(f => ({ ...f, description: e.target.value }))
+            }
+            placeholder="Tell candidates about your company..."
+            className="bg-black/40 border-white/10 resize-none"
+          />
+        </Field>
+
+        <Button
+          onClick={saveCompany}
+          disabled={saving}
+          className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white"
+        >
+          {saving && (
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+          )}
+          Save company profile
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -2753,6 +3417,8 @@ function ConnectGooglePrompt({ title, desc }) {
   )
 }
 
+
+
 // ---------- SETTINGS ----------
 function SettingsTab({ me }) {
   return (
@@ -2772,26 +3438,102 @@ function SettingsTab({ me }) {
     </div>
   )
 }
-function IntegrationRow({ name, connected, icon: Icon, description, href }) {
+function IntegrationRow({
+  name,
+  connected,
+  icon: Icon,
+  description,
+  href,
+}) {
+  const [disconnecting, setDisconnecting] = useState(false)
+
+  async function handleDisconnect() {
+    if (!connected || disconnecting) return
+
+    const confirmed = window.confirm(
+      `Disconnect ${name}?`
+    )
+
+    if (!confirmed) return
+
+    setDisconnecting(true)
+
+    try {
+      const res = await fetch('/api/auth/google/disconnect', {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to disconnect')
+      }
+
+      window.location.reload()
+    } catch (error) {
+      console.error('Google disconnect failed:', error)
+      alert(error.message || 'Failed to disconnect Google')
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
   return (
     <div className="flex items-center justify-between gap-3 py-2">
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center"><Icon className="w-4 h-4 text-white/70" /></div>
+        <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center">
+          <Icon className="w-4 h-4 text-white/70" />
+        </div>
+
         <div>
-          <div className="text-sm font-medium">{name}</div>
-          <div className="text-xs text-white/40">{description}</div>
+          <div className="text-sm font-medium">
+            {name}
+          </div>
+
+          <div className="text-xs text-white/40">
+            {description}
+          </div>
         </div>
       </div>
+
       {connected ? (
-        <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"><Check className="w-3 h-3 mr-1" /> Connected</Badge>
+        <div className="flex items-center gap-2">
+          <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+            <Check className="w-3 h-3 mr-1" />
+            Connected
+          </Badge>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            className="border-rose-500/20 bg-rose-500/5 text-rose-300 hover:bg-rose-500/10"
+          >
+            {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+          </Button>
+        </div>
       ) : href ? (
-        <a href={href}><Button size="sm" variant="outline" className="border-white/10 bg-white/5">Connect</Button></a>
+        <a href={href}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-white/10 bg-white/5"
+          >
+            Connect
+          </Button>
+        </a>
       ) : (
-        <Badge className="bg-white/5 border border-white/10 text-white/50">Soon</Badge>
+        <Badge className="bg-white/5 border border-white/10 text-white/50">
+          Soon
+        </Badge>
       )}
     </div>
   )
 }
+
+
 
 // ============ JOBS (Kanban) ============
 const JOB_STAGES = [
@@ -4270,67 +5012,697 @@ function Stat({ label, value, color }) {
   )
 }
 
-// ---------- DAILY BRIEFING CARD (home) ----------
 function DailyBriefingCard() {
-  const [briefing, setBriefing] = useState(null)
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
-  async function fetchBriefing() {
+
+  async function fetchIntelligence() {
     setLoading(true)
+
     try {
       const r = await fetch('/api/daily-briefing')
-      const data = await r.json()
-      if (r.ok) setBriefing(data)
-      else toast.error(data.error || 'Briefing failed')
-    } catch (e) { toast.error(e.message) }
-    finally { setLoading(false) }
+      const result = await r.json()
+
+      if (r.ok) {
+        setData(result)
+      } else {
+        toast.error(result.error || "Today's intelligence failed")
+      }
+    } catch (e) {
+      toast.error(e.message || "Something went wrong")
+    } finally {
+      setLoading(false)
+    }
   }
+
+  const intelligence = data?.intelligence
+
+  const typeConfig = {
+    calendar: {
+      icon: CalendarDays,
+      label: 'Calendar',
+      className: 'text-blue-400',
+    },
+    email: {
+      icon: Mail,
+      label: 'Email',
+      className: 'text-amber-400',
+    },
+    career: {
+      icon: Briefcase,
+      label: 'Career',
+      className: 'text-emerald-400',
+    },
+    drive: {
+      icon: FolderOpen,
+      label: 'Drive',
+      className: 'text-violet-400',
+    },
+    general: {
+      icon: Sparkles,
+      label: 'Veyra',
+      className: 'text-white/60',
+    },
+  }
+
+  const connected = data?.connected?.google
+
   return (
-    <div className="glass-strong rounded-2xl p-6 border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 via-transparent to-blue-500/5">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2">
-          <Sunrise className="w-5 h-5 text-amber-400" />
-          <div>
-            <div className="text-sm font-semibold">Your Daily Briefing</div>
-            <div className="text-[11px] text-white/40">AI-curated for you</div>
-          </div>
-        </div>
-        <Button size="sm" onClick={fetchBriefing} disabled={loading} className="bg-white text-black hover:bg-white/90 h-8">
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : briefing ? <><RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh</> : <><Sparkles className="w-3.5 h-3.5 mr-1" /> Get today's briefing</>}
-        </Button>
-      </div>
-      {briefing?.briefing ? (
-        <div className="space-y-3 mt-4">
-          <div className="text-lg font-semibold text-gradient">{briefing.briefing.greeting}</div>
-          <div className="glass rounded-xl p-4 border border-amber-500/20">
-            <div className="text-[10px] uppercase text-amber-400 mb-1">Focus of the day</div>
-            <div className="text-sm text-white/90">{briefing.briefing.focusOfDay}</div>
-          </div>
-          {briefing.briefing.todoList?.length > 0 && (
+    <div className="space-y-5">
+
+      {/* =====================================================
+          TOP HERO
+      ===================================================== */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-emerald-500/[0.08] via-transparent to-blue-500/[0.08] p-6">
+
+        <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-blue-500/[0.06] blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-64 h-64 rounded-full bg-emerald-500/[0.05] blur-3xl pointer-events-none" />
+
+        <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-5">
+
+          <div className="flex items-start gap-4">
+
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-400/20 via-blue-500/20 to-violet-500/20 border border-white/10 flex items-center justify-center shrink-0">
+              <Sparkles className="w-6 h-6 text-emerald-400" />
+            </div>
+
             <div>
-              <div className="text-[10px] uppercase text-white/50 mb-2">Today's plan</div>
-              <ul className="space-y-1.5">
-                {briefing.briefing.todoList.map((t, i) => (
-                  <li key={i} className="text-sm text-white/80 flex items-start gap-2">
-                    <div className="w-4 h-4 rounded border border-white/20 shrink-0 mt-0.5" />
-                    <span>{t}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-semibold">
+                  Today's Intelligence
+                </h2>
+
+                <span className="px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                  Veyra AI
+                </span>
+              </div>
+
+              <p className="text-sm text-white/45 mt-1 max-w-xl">
+                Your career, schedule, inbox and workspace — brought together
+                into one focused view of what matters today.
+              </p>
             </div>
-          )}
-          {briefing.briefing.opportunityHint && (
-            <div className="glass rounded-xl p-3 border border-blue-500/20 flex items-start gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
-              <div className="text-xs text-white/80">{briefing.briefing.opportunityHint}</div>
-            </div>
-          )}
-          {briefing.briefing.motivationalNote && (
-            <div className="text-xs text-white/60 italic text-center pt-2">"{briefing.briefing.motivationalNote}"</div>
-          )}
+
+          </div>
+
+          <Button
+            size="sm"
+            onClick={fetchIntelligence}
+            disabled={loading}
+            className="bg-white text-black hover:bg-white/90 h-10 px-4 shrink-0"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Thinking...
+              </>
+            ) : data ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                Refresh intelligence
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5 mr-2" />
+                Get today's intelligence
+              </>
+            )}
+          </Button>
+
         </div>
-      ) : !loading && (
-        <div className="text-xs text-white/40 mt-2">Tap the button to get your personalized morning briefing.</div>
+      </div>
+
+
+      {/* =====================================================
+          DEFAULT / BEFORE INTELLIGENCE
+      ===================================================== */}
+      {!intelligence && !loading && (
+
+        <div className="space-y-4">
+
+          {/* CONNECTED SERVICES */}
+          <div className="grid md:grid-cols-3 gap-3">
+
+            {/* CALENDAR */}
+            <a
+              href="https://calendar.google.com"
+              target="_blank"
+              rel="noreferrer"
+              className="group glass rounded-xl p-4 border border-blue-500/10 hover:border-blue-500/30 hover:bg-blue-500/[0.04] transition"
+            >
+              <div className="flex items-center justify-between">
+
+                <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <CalendarDays className="w-4 h-4 text-blue-400" />
+                </div>
+
+                <ExternalLink className="w-3.5 h-3.5 text-white/20 group-hover:text-blue-400 transition" />
+
+              </div>
+
+              <div className="mt-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">
+                    Calendar
+                  </span>
+
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                </div>
+
+                <div className="text-xs text-white/40 mt-1">
+                  Your schedule is connected
+                </div>
+              </div>
+            </a>
+
+
+            {/* GMAIL */}
+            <a
+              href="https://mail.google.com"
+              target="_blank"
+              rel="noreferrer"
+              className="group glass rounded-xl p-4 border border-amber-500/10 hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition"
+            >
+              <div className="flex items-center justify-between">
+
+                <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                  <Mail className="w-4 h-4 text-amber-400" />
+                </div>
+
+                <ExternalLink className="w-3.5 h-3.5 text-white/20 group-hover:text-amber-400 transition" />
+
+              </div>
+
+              <div className="mt-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">
+                    Gmail
+                  </span>
+
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                </div>
+
+                <div className="text-xs text-white/40 mt-1">
+                  Your inbox is connected
+                </div>
+              </div>
+            </a>
+
+
+            {/* DRIVE */}
+            <a
+              href="https://drive.google.com"
+              target="_blank"
+              rel="noreferrer"
+              className="group glass rounded-xl p-4 border border-violet-500/10 hover:border-violet-500/30 hover:bg-violet-500/[0.04] transition"
+            >
+              <div className="flex items-center justify-between">
+
+                <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                  <FolderOpen className="w-4 h-4 text-violet-400" />
+                </div>
+
+                <ExternalLink className="w-3.5 h-3.5 text-white/20 group-hover:text-violet-400 transition" />
+
+              </div>
+
+              <div className="mt-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">
+                    Drive
+                  </span>
+
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                </div>
+
+                <div className="text-xs text-white/40 mt-1">
+                  Your workspace is connected
+                </div>
+              </div>
+            </a>
+
+          </div>
+
+
+          {/* WHAT VEYRA WILL ANALYZE */}
+          <div className="glass rounded-xl border border-white/5 p-5">
+
+            <div className="flex items-center gap-2 mb-4">
+              <Brain className="w-4 h-4 text-emerald-400" />
+
+              <div>
+                <div className="text-sm font-semibold">
+                  What Veyra will analyze
+                </div>
+
+                <div className="text-xs text-white/35 mt-0.5">
+                  One intelligence layer across your workday
+                </div>
+              </div>
+            </div>
+
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+
+              <div className="rounded-lg bg-white/[0.025] border border-white/5 p-3">
+                <CalendarDays className="w-4 h-4 text-blue-400 mb-2" />
+                <div className="text-xs font-medium">
+                  Schedule
+                </div>
+                <div className="text-[10px] text-white/35 mt-1">
+                  Meetings & events
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-white/[0.025] border border-white/5 p-3">
+                <Mail className="w-4 h-4 text-amber-400 mb-2" />
+                <div className="text-xs font-medium">
+                  Inbox
+                </div>
+                <div className="text-[10px] text-white/35 mt-1">
+                  Important emails
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-white/[0.025] border border-white/5 p-3">
+                <Briefcase className="w-4 h-4 text-emerald-400 mb-2" />
+                <div className="text-xs font-medium">
+                  Career
+                </div>
+                <div className="text-[10px] text-white/35 mt-1">
+                  Applications & follow-ups
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-white/[0.025] border border-white/5 p-3">
+                <FolderOpen className="w-4 h-4 text-violet-400 mb-2" />
+                <div className="text-xs font-medium">
+                  Workspace
+                </div>
+                <div className="text-[10px] text-white/35 mt-1">
+                  Recent Drive activity
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+
+          {/* SMALL PROMPT */}
+          <div className="rounded-xl border border-white/5 bg-white/[0.015] px-5 py-4 flex items-center justify-between gap-4">
+
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-white/50" />
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-white/70">
+                  Ready when you are.
+                </div>
+
+                <div className="text-[11px] text-white/35">
+                  Generate your personalized plan for today.
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={fetchIntelligence}
+              className="text-xs text-emerald-400 hover:text-emerald-300 transition"
+            >
+              Analyze now →
+            </button>
+
+          </div>
+
+        </div>
       )}
+
+
+      {/* =====================================================
+          LOADING
+      ===================================================== */}
+      {loading && (
+
+        <div className="space-y-4">
+
+          <div className="glass rounded-xl p-5 border border-white/5">
+
+            <div className="flex items-center gap-3 mb-5">
+
+              <div className="w-10 h-10 rounded-xl bg-white/5 animate-pulse" />
+
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-1/3 rounded bg-white/5 animate-pulse" />
+                <div className="h-3 w-2/3 rounded bg-white/5 animate-pulse" />
+              </div>
+
+            </div>
+
+            <div className="space-y-3">
+              <div className="h-16 rounded-xl bg-white/5 animate-pulse" />
+              <div className="h-16 rounded-xl bg-white/5 animate-pulse" />
+              <div className="h-16 rounded-xl bg-white/5 animate-pulse" />
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+
+      {/* =====================================================
+          INTELLIGENCE RESULT
+      ===================================================== */}
+      {intelligence && !loading && (
+
+        <div className="space-y-5">
+
+          {/* GREETING */}
+          <div className="glass rounded-xl border border-white/5 p-5">
+
+            <div className="text-xl font-semibold text-gradient">
+              {intelligence.greeting}
+            </div>
+
+            <div className="text-sm text-white/60 mt-1">
+              {intelligence.focusOfDay}
+            </div>
+
+          </div>
+
+
+          {/* PRIORITIES */}
+          {intelligence.priorities?.length > 0 && (
+
+            <div>
+
+              <div className="text-[10px] uppercase tracking-wider text-white/40 mb-2">
+                Your priorities
+              </div>
+
+              <div className="space-y-2">
+
+                {intelligence.priorities.map((item, index) => {
+
+                  const config =
+                    typeConfig[item.type] || typeConfig.general
+
+                  const Icon = config.icon
+
+                  return (
+                    <div
+                      key={index}
+                      className="glass rounded-xl p-4 border border-white/5"
+                    >
+                      <div className="flex items-start gap-3">
+
+                        <Icon
+                          className={`w-4 h-4 mt-0.5 shrink-0 ${config.className}`}
+                        />
+
+                        <div className="flex-1 min-w-0">
+
+                          <div className="text-sm font-medium">
+                            {item.title}
+                          </div>
+
+                          <div className="text-xs text-white/50 mt-1">
+                            {item.reason}
+                          </div>
+
+                        </div>
+
+                      </div>
+                    </div>
+                  )
+                })}
+
+              </div>
+
+            </div>
+          )}
+
+
+          {/* INSIGHTS */}
+          <div className="grid md:grid-cols-3 gap-3">
+
+            {intelligence.emailInsight && (
+              <div className="glass rounded-xl p-4 border border-amber-500/10">
+
+                <div className="flex items-center gap-2 mb-2">
+                  <Mail className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-[10px] uppercase text-white/40">
+                    Inbox
+                  </span>
+                </div>
+
+                <div className="text-xs text-white/70 leading-relaxed">
+                  {intelligence.emailInsight}
+                </div>
+
+              </div>
+            )}
+
+            {intelligence.careerInsight && (
+              <div className="glass rounded-xl p-4 border border-emerald-500/10">
+
+                <div className="flex items-center gap-2 mb-2">
+                  <Briefcase className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-[10px] uppercase text-white/40">
+                    Career
+                  </span>
+                </div>
+
+                <div className="text-xs text-white/70 leading-relaxed">
+                  {intelligence.careerInsight}
+                </div>
+
+              </div>
+            )}
+
+            {intelligence.driveInsight && (
+              <div className="glass rounded-xl p-4 border border-violet-500/10">
+
+                <div className="flex items-center gap-2 mb-2">
+                  <FolderOpen className="w-3.5 h-3.5 text-violet-400" />
+                  <span className="text-[10px] uppercase text-white/40">
+                    Drive
+                  </span>
+                </div>
+
+                <div className="text-xs text-white/70 leading-relaxed">
+                  {intelligence.driveInsight}
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+
+          {/* RECOMMENDATION */}
+          {intelligence.recommendation && (
+
+            <div className="rounded-xl p-4 border border-blue-500/20 bg-blue-500/[0.04]">
+
+              <div className="flex items-center gap-2 mb-1">
+
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+
+                <span className="text-[10px] uppercase tracking-wider text-blue-400">
+                  Veyra recommends
+                </span>
+
+              </div>
+
+              <div className="text-sm text-white/80">
+                {intelligence.recommendation}
+              </div>
+
+            </div>
+          )}
+
+
+          {/* CONNECTED WORKSPACE */}
+          <div className="pt-2">
+
+            <div className="flex items-center justify-between mb-3">
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-white/40">
+                  Connected Workspace
+                </div>
+
+                <div className="text-xs text-white/40 mt-0.5">
+                  Your everyday tools, brought into Veyra
+                </div>
+              </div>
+
+              {connected && (
+                <div className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Google connected
+                </div>
+              )}
+
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-3">
+
+              {/* CALENDAR */}
+              <a
+                href="https://calendar.google.com"
+                target="_blank"
+                rel="noreferrer"
+                className="group glass rounded-xl p-4 border border-blue-500/10 hover:border-blue-500/30 hover:bg-blue-500/[0.04] transition"
+              >
+
+                <div className="flex items-start justify-between">
+
+                  <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <CalendarDays className="w-4 h-4 text-blue-400" />
+                  </div>
+
+                  <ExternalLink className="w-3.5 h-3.5 text-white/20 group-hover:text-blue-400 transition" />
+
+                </div>
+
+                <div className="mt-3">
+
+                  <div className="text-sm font-semibold">
+                    Calendar
+                  </div>
+
+                  <div className="text-xs text-white/40 mt-1">
+                    {data.events?.length || 0} events today
+                  </div>
+
+                  {data.events?.length > 0 && (
+                    <div className="text-xs text-white/60 mt-2 line-clamp-2">
+                      {data.events[0]?.summary || 'Upcoming event'}
+                    </div>
+                  )}
+
+                </div>
+
+              </a>
+
+
+              {/* GMAIL */}
+              <a
+                href="https://mail.google.com"
+                target="_blank"
+                rel="noreferrer"
+                className="group glass rounded-xl p-4 border border-amber-500/10 hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition"
+              >
+
+                <div className="flex items-start justify-between">
+
+                  <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                    <Mail className="w-4 h-4 text-amber-400" />
+                  </div>
+
+                  <ExternalLink className="w-3.5 h-3.5 text-white/20 group-hover:text-amber-400 transition" />
+
+                </div>
+
+                <div className="mt-3">
+
+                  <div className="text-sm font-semibold">
+                    Gmail
+                  </div>
+
+                  <div className="text-xs text-white/40 mt-1">
+                    {data.emails?.length || 0} recent emails
+                  </div>
+
+                  {data.emails?.length > 0 && (
+                    <div className="text-xs text-white/60 mt-2 line-clamp-2">
+                      {data.emails[0]?.subject || 'Recent email'}
+                    </div>
+                  )}
+
+                </div>
+
+              </a>
+
+
+              {/* DRIVE */}
+              <a
+                href="https://drive.google.com"
+                target="_blank"
+                rel="noreferrer"
+                className="group glass rounded-xl p-4 border border-violet-500/10 hover:border-violet-500/30 hover:bg-violet-500/[0.04] transition"
+              >
+
+                <div className="flex items-start justify-between">
+
+                  <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <FolderOpen className="w-4 h-4 text-violet-400" />
+                  </div>
+
+                  <ExternalLink className="w-3.5 h-3.5 text-white/20 group-hover:text-violet-400 transition" />
+
+                </div>
+
+                <div className="mt-3">
+
+                  <div className="text-sm font-semibold">
+                    Drive
+                  </div>
+
+                  <div className="text-xs text-white/40 mt-1">
+                    {data.driveFiles?.length || 0} recent files
+                  </div>
+
+                  {data.driveFiles?.length > 0 && (
+                    <div className="text-xs text-white/60 mt-2 line-clamp-2">
+                      {data.driveFiles[0]?.name || 'Recent file'}
+                    </div>
+                  )}
+
+                </div>
+
+              </a>
+
+            </div>
+
+          </div>
+
+
+          {/* DATA SUMMARY */}
+          <div className="flex flex-wrap gap-2 pt-1">
+
+            <div className="text-[10px] text-white/35">
+              {data.events?.length || 0} calendar events
+            </div>
+
+            <div className="text-white/20">•</div>
+
+            <div className="text-[10px] text-white/35">
+              {data.emails?.length || 0} recent emails
+            </div>
+
+            <div className="text-white/20">•</div>
+
+            <div className="text-[10px] text-white/35">
+              {data.driveFiles?.length || 0} Drive files
+            </div>
+
+            <div className="text-white/20">•</div>
+
+            <div className="text-[10px] text-white/35">
+              {data.followUps?.length || 0} follow-ups
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
     </div>
   )
 }

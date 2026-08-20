@@ -4,8 +4,8 @@
     "private": true,
     "scripts": {
         "dev": "NODE_OPTIONS='--max-old-space-size=2048' next dev --hostname localhost --port 3000",
-"dev:no-reload": "next dev --hostname localhost --port 3000",
-"dev:webpack": "next dev --hostname localhost --port 3000",
+        "dev:no-reload": "next dev --hostname localhost --port 3000",
+        "dev:webpack": "next dev --hostname localhost --port 3000",
         "build": "next build",
         "start": "next start"
     },
@@ -53,7 +53,7 @@
         "dayjs": "1.11.13",
         "embla-carousel-react": "8.6.0",
         "framer-motion": "11.18.0",
-        "google-auth-library": "9.15.0",
+        "google-auth-library": "^10.5.0",
         "html2canvas": "1.4.1",
         "input-otp": "1.4.2",
         "jspdf": "2.5.2",

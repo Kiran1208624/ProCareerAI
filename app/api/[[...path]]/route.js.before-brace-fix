@@ -74,10 +74,6 @@ async function getSession() {
   const user = await db.collection("users").findOne({ id: sess.userId });
 
   console.log("SESSION DEBUG: USER FOUND:", !!user);
-  console.log("SESSION DEBUG: USER ID:", user?.id);
-  console.log("SESSION DEBUG: USER ROLE:", user?.role);
-  console.log("SESSION DEBUG: COLLEGE ID:", user?.collegeId);
-  console.log("SESSION DEBUG: ORG NAME:", user?.orgName);
 
   if (!user) {
     console.log("SESSION DEBUG: SESSION EXISTS BUT USER NOT FOUND");
@@ -159,7 +155,7 @@ async function saveUserGoogleTokens(userId, tokens) {
     },
     { upsert: true },
   );
-}
+    
 
 async function getAuthedGoogle(userId) {
   const tokens = await getUserGoogleTokens(userId);
@@ -304,7 +300,8 @@ async function upsertMemoriesFromMessage(userId, userText, assistantText) {
     // Silent — memory extraction is best-effort
     console.error("memory extraction failed", e.message);
   }
-}
+
+    
 
 // ---------------- Route handler ----------------
 
@@ -313,7 +310,7 @@ async function handleRoute(request, { params }) {
   const path = p.path || [];
   const route = `/${path.join("/")}`;
   const method = request.method;
-  console.log("ROUTE DEBUG:", { route, method });
+
   try {
     const db = await connectToMongo();
 
@@ -2650,51 +2647,6 @@ Return exactly this JSON:
       );
     }
 
-    // Company profile
-    if (route === "/company/profile" && method === "GET") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const { _id, ...safeOrganization } = organization;
-
-      return handleCORS(
-        NextResponse.json({
-          ...safeOrganization,
-          id: organization.id,
-          companyName: organization.name,
-        }),
-      );
-    }
-
-
     // ============ PUBLIC COMPANY JOBS ============
 
     if (route === "/public/jobs" && method === "GET") {
@@ -3435,14 +3387,6 @@ Return exactly this JSON:
 
     // ============ COLLEGE PORTAL — PROFILE + STUDENTS ============
 
-    console.log("COLLEGE ROUTE CHECK:", {
-      route,
-      method,
-      isProfile: route === "/college/profile",
-      isStudents: route === "/college/students",
-      isDrives: route === "/college/drives",
-    });
-
     if (route === "/college/profile" && method === "GET") {
       const s = await getSession();
 
@@ -3461,27 +3405,22 @@ Return exactly this JSON:
         );
       }
 
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "college",
+      const college = await db.collection("colleges").findOne({
+        _id: new (await import("mongodb")).ObjectId(s.user.collegeId),
       });
 
-      if (!organization) {
+      if (!college) {
         return handleCORS(
-          NextResponse.json(
-            { error: "College organization not found" },
-            { status: 404 },
-          ),
+          NextResponse.json({ error: "College not found" }, { status: 404 }),
         );
       }
 
-      const { _id, ...safeOrganization } = organization;
+      const { password, ...safeCollege } = college;
 
       return handleCORS(
         NextResponse.json({
-          ...safeOrganization,
-          id: organization.id,
-          collegeName: organization.name,
+          ...safeCollege,
+          id: String(college._id),
         }),
       );
     }
@@ -3519,7 +3458,7 @@ Return exactly this JSON:
       }
 
       const collegeId = new (await import("mongodb")).ObjectId(
-        s.user.organizationId,
+        s.user.collegeId,
       );
 
       await db
@@ -3564,27 +3503,20 @@ Return exactly this JSON:
         );
       }
 
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "college",
+      const college = await db.collection("colleges").findOne({
+        _id: new (await import("mongodb")).ObjectId(s.user.collegeId),
       });
 
-      if (!organization) {
+      if (!college) {
         return handleCORS(
-          NextResponse.json(
-            { error: "College organization not found" },
-            { status: 404 },
-          ),
+          NextResponse.json({ error: "College not found" }, { status: 404 }),
         );
       }
 
       const students = await db
         .collection("studentprofiles")
         .find({
-          $or: [
-            { organizationId: organization.id },
-            { college: organization.name },
-          ],
+          college: college.collegeName,
         })
         .sort({ updatedAt: -1 })
         .toArray();
@@ -3666,7 +3598,7 @@ Return exactly this JSON:
       const drive = {
         id: uuidv4(),
 
-        organizationId: s.user.collegeId,
+        collegeId: s.user.collegeId,
         collegeName: s.user.orgName || "",
 
         companyId: body.companyId || null,
@@ -3740,7 +3672,7 @@ Return exactly this JSON:
       const drives = await db
         .collection("placementdrives")
         .find({
-          organizationId: s.user.collegeId,
+          collegeId: s.user.collegeId,
         })
         .sort({ createdAt: -1 })
         .toArray();
@@ -3776,7 +3708,7 @@ Return exactly this JSON:
 
       const drive = await db.collection("placementdrives").findOne({
         id,
-        organizationId: s.user.collegeId,
+        collegeId: s.user.collegeId,
       });
 
       if (!drive) {
@@ -3843,7 +3775,7 @@ Return exactly this JSON:
       await db.collection("placementdrives").updateOne(
         {
           id,
-          organizationId: s.user.collegeId,
+          collegeId: s.user.collegeId,
         },
         {
           $set: update,
@@ -3852,7 +3784,7 @@ Return exactly this JSON:
 
       const drive = await db.collection("placementdrives").findOne({
         id,
-        organizationId: s.user.collegeId,
+        collegeId: s.user.collegeId,
       });
 
       if (!drive) {
@@ -3890,7 +3822,7 @@ Return exactly this JSON:
 
       const result = await db.collection("placementdrives").deleteOne({
         id,
-        organizationId: s.user.collegeId,
+        collegeId: s.user.collegeId,
       });
 
       if (!result.deletedCount) {
@@ -4021,379 +3953,7 @@ Return exactly this JSON:
         }),
       );
     }
-    // ============ COMPANY PORTAL ============
 
-    // Get company profile
-    if (route === "/company/profile" && method === "GET") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const { _id, ...safeOrganization } = organization;
-
-      return handleCORS(
-        NextResponse.json({
-          ...safeOrganization,
-          id: organization.id,
-          companyName: organization.name,
-        }),
-      );
-    }
-
-    // Update company profile
-    if (route === "/company/profile" && method === "PUT") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const body = await request.json();
-
-      const allowed = [
-        "phone",
-        "website",
-        "address",
-        "logo",
-        "description",
-        "industry",
-        "companySize",
-      ];
-
-      const update = {
-        updatedAt: new Date(),
-      };
-
-      for (const key of allowed) {
-        if (key in body) {
-          update[key] = body[key];
-        }
-      }
-
-      await db.collection("organizations").updateOne(
-        { id: organization.id },
-        { $set: update },
-      );
-
-      const updated = await db.collection("organizations").findOne({
-        id: organization.id,
-      });
-
-      const { _id, ...safeUpdated } = updated;
-
-      return handleCORS(
-        NextResponse.json({
-          ...safeUpdated,
-          id: updated.id,
-          companyName: updated.name,
-        }),
-      );
-    }
-
-    // Get company organization members
-    if (route === "/company/members" && method === "GET") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const members = await db
-        .collection("users")
-        .find(
-          { organizationId: organization.id },
-          {
-            projection: {
-              _id: 0,
-              id: 1,
-              name: 1,
-              email: 1,
-              picture: 1,
-              role: 1,
-              organizationId: 1,
-              organizationType: 1,
-              createdAt: 1,
-            },
-          },
-        )
-        .sort({ createdAt: 1 })
-        .toArray();
-
-      return handleCORS(
-        NextResponse.json({
-          organization: {
-            id: organization.id,
-            name: organization.name,
-            type: organization.type,
-          },
-          members,
-        }),
-      );
-    }
-
-    // Company jobs
-    if (route === "/company/jobs" && method === "GET") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const jobs = await db
-        .collection("jobs")
-        .find({
-          organizationId: organization.id,
-        })
-        .sort({ createdAt: -1 })
-        .toArray();
-
-      return handleCORS(
-        NextResponse.json({
-          jobs: jobs.map(({ _id, ...job }) => ({
-            ...job,
-            id: job.id || String(_id),
-          })),
-          total: jobs.length,
-        }),
-      );
-    }
-
-    // Create company job
-    if (route === "/company/jobs" && method === "POST") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const body = await request.json();
-      const now = new Date();
-
-      const job = {
-        id: uuidv4(),
-        organizationId: organization.id,
-        companyId: organization.id,
-        company: organization.name,
-        title: body.title || body.role || "",
-        role: body.role || body.title || "",
-        department: body.department || "",
-        location: body.location || "",
-        employmentType: body.employmentType || "full_time",
-        experience: body.experience || "",
-        salaryMin: body.salaryMin ?? 0,
-        salaryMax: body.salaryMax ?? 0,
-        description: body.description || "",
-        skills: Array.isArray(body.skills) ? body.skills : [],
-        status: body.status || "draft",
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      if (!job.title) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Job title is required" },
-            { status: 400 },
-          ),
-        );
-      }
-
-      await db.collection("jobs").insertOne(job);
-
-      return handleCORS(
-        NextResponse.json(job, { status: 201 }),
-      );
-    }
-
-    // Company applications
-    if (route === "/company/applications" && method === "GET") {
-      const s = await getSession();
-
-      if (!s) {
-        return handleCORS(
-          NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
-        );
-      }
-
-      if (s.user.role !== "company_admin") {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company admin access required" },
-            { status: 403 },
-          ),
-        );
-      }
-
-      const organization = await db.collection("organizations").findOne({
-        id: s.user.organizationId,
-        type: "company",
-      });
-
-      if (!organization) {
-        return handleCORS(
-          NextResponse.json(
-            { error: "Company organization not found" },
-            { status: 404 },
-          ),
-        );
-      }
-
-      const jobs = await db
-        .collection("jobs")
-        .find({
-          organizationId: organization.id,
-        })
-        .toArray();
-
-      const jobIds = jobs.map((j) => j.id).filter(Boolean);
-
-      const applications = jobIds.length
-        ? await db
-            .collection("applications")
-            .find({
-              jobId: { $in: jobIds },
-            })
-            .sort({ createdAt: -1 })
-            .toArray()
-        : [];
-
-      return handleCORS(
-        NextResponse.json({
-          applications: applications.map(({ _id, ...application }) => ({
-            ...application,
-            id: application.id || String(_id),
-          })),
-          total: applications.length,
-        }),
-      );
-    }
     // ============ AI: CODING INTERVIEW ============
     if (route === "/ai/coding-challenge" && method === "POST") {
       const s = await getSession();
